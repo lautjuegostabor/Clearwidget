@@ -41,6 +41,28 @@ jobs:
           set -euo pipefail
           xcrun swiftc -swift-version 5 Widget/WeatherService.swift Tests/WeatherTests.swift -o /tmp/clearwidget-weather-tests
           /tmp/clearwidget-weather-tests
+      - name: Generate lightweight local assets
+        run: python3 Tools/generate_assets.py
+      - name: Check live ECMWF response
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 15 --get 'https://api.open-meteo.com/v1/forecast' \
+            --data-urlencode 'latitude=-31.4167' --data-urlencode 'longitude=-64.1833' \
+            --data-urlencode 'models=ecmwf_ifs' --data-urlencode 'current=temperature_2m,weather_code,is_day' \
+            --data-urlencode 'hourly=temperature_2m,weather_code,is_day' --data-urlencode 'forecast_days=3' \
+            --data-urlencode 'timezone=America/Argentina/Cordoba' --data-urlencode 'timeformat=unixtime' -o /tmp/forecast.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/forecast.json'))
+          h=x['hourly']
+          assert len(h['time']) >= 48
+          assert all(len(h[k])==len(h['time']) for k in ['temperature_2m','weather_code','is_day'])
+          assert isinstance(h['time'][0],int) and any(v is not None for v in h['temperature_2m'])
+          assert isinstance(x['current']['time'],int)
+          print('ECMWF response schema verified')
+          PY
       - name: Generate project and build
         run: |
           set -euo pipefail
@@ -58,10 +80,10 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$ext/Info.plist" | grep -Fx com.apple.widgetkit-extension
           mkdir -p Payload
           cp -R "$app" Payload/
-          zip -qry ClearWidget-v0.2.0.ipa Payload
-          unzip -t ClearWidget-v0.2.0.ipa
+          zip -qry ClearWidget-v0.3.0.ipa Payload
+          unzip -t ClearWidget-v0.3.0.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: ClearWidget-v0.2.0
-          path: ClearWidget-v0.2.0.ipa
+          name: ClearWidget-v0.3.0
+          path: ClearWidget-v0.3.0.ipa
           if-no-files-found: error
