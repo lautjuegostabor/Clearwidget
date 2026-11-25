@@ -106,12 +106,12 @@ enum ForecastDisk {
         return elapsed >= 0 && elapsed < 15
     }
     static func nextRefresh(at now: Date) -> Date {
-        if let cache = cached, now.timeIntervalSince(cache.fetchedAt) < ttl {
+        if let cache = cached, (0..<ttl).contains(now.timeIntervalSince(cache.fetchedAt)) {
             return max(now.addingTimeInterval(60), cache.fetchedAt.addingTimeInterval(ttl))
         }
         let last = UserDefaults.standard.double(forKey: attemptKey)
         let earliest = Date(timeIntervalSince1970: last + retry)
-        return max(now.addingTimeInterval(60), earliest)
+        return max(now.addingTimeInterval(retry), earliest)
     }
 }
 
@@ -124,16 +124,18 @@ actor WeatherService {
         configuration.timeoutIntervalForResource = 8
         configuration.waitsForConnectivity = false
         configuration.urlCache = nil
+        configuration.httpMaximumConnectionsPerHost = 1
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: configuration)
     }()
 
     // Only scheduled timeline generation may fetch. Navigation uses local cache.
     func refreshIfDue(at now: Date) async {
         guard !inFlight, !ForecastDisk.navigationRecent(at: now) else { return }
-        if let cache = ForecastDisk.cached, now.timeIntervalSince(cache.fetchedAt) < ForecastDisk.ttl { return }
+        if let cache = ForecastDisk.cached, (0..<ForecastDisk.ttl).contains(now.timeIntervalSince(cache.fetchedAt)) { return }
         let defaults = UserDefaults.standard
         let sinceAttempt = now.timeIntervalSince1970 - defaults.double(forKey: ForecastDisk.attemptKey)
-        guard sinceAttempt >= ForecastDisk.retry else { return }
+        guard sinceAttempt >= ForecastDisk.retry || sinceAttempt < 0 else { return }
         guard let url = Self.endpoint else { return }
         inFlight = true
         defaults.set(now.timeIntervalSince1970, forKey: ForecastDisk.attemptKey)
