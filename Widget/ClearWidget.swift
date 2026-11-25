@@ -80,7 +80,6 @@ private struct Provider: TimelineProvider {
     }
 }
 
-private let red = Color(red: 1, green: 0.22, blue: 0.12)
 private let spanish = Locale(identifier: "es_AR")
 
 private struct ClearView: View {
@@ -153,11 +152,11 @@ private struct HomePage: View {
     let date: Date
     let s: CGFloat
     var body: some View {
-        HStack(spacing: 26 * s) {
+        ZStack(alignment: .topLeading) {
             HelloMark()
                 .stroke(Color.white.opacity(0.86), style: StrokeStyle(lineWidth: 5.5 * s, lineCap: .round, lineJoin: .round))
                 .frame(width: 250 * s, height: 84 * s)
-                .frame(width: 300 * s)
+                .position(x: 220 * s, y: 230 * s)
                 .accessibilityLabel("Hello")
             VStack(alignment: .trailing, spacing: 5 * s) {
                 Text(date.formatted(.dateTime.weekday(.wide).locale(spanish)))
@@ -165,13 +164,18 @@ private struct HomePage: View {
             }
             .font(.system(size: 34 * s, weight: .regular, design: .rounded))
             .lineLimit(1).minimumScaleFactor(0.7)
+            .frame(width: 235 * s, alignment: .trailing)
+            .position(x: 488 * s, y: 230 * s)
             ZStack {
-                Circle().fill(red)
+                Image("HomeOrange").resizable().widgetAccentedRenderingMode(.fullColor)
                 Text(String(Calendar.autoupdatingCurrent.component(.day, from: date)))
                     .font(.system(size: 44 * s, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.white)
-            }.frame(width: 96 * s, height: 96 * s)
-        }.padding(.horizontal, 34 * s)
+            }
+            .frame(width: 96 * s, height: 96 * s)
+            .position(x: 685 * s, y: 230 * s)
+        }
+        .frame(width: 824 * s, height: 460 * s)
     }
 }
 
@@ -207,8 +211,8 @@ private struct CalendarPage: View {
                         let sameMonth = cal.component(.month, from: day) == currentMonth
                         ZStack {
                             if today {
-                                RoundedRectangle(cornerRadius: 13 * s)
-                                    .fill(red).frame(width: 96 * s, height: 76 * s)
+                                Image("TodayRed").resizable().widgetAccentedRenderingMode(.fullColor)
+                                    .frame(width: 96 * s, height: 76 * s)
                             }
                             Text(String(cal.component(.day, from: day)))
                                 .foregroundStyle(.white.opacity(today || sameMonth ? 1 : 0.48))
@@ -303,29 +307,25 @@ private struct NavigationRail: View {
     let s: CGFloat
     var body: some View {
         VStack(spacing: 3 * s) {
-            key(.calendar, top: true, bottom: false)
-            key(.home, top: false, bottom: false)
-            key(.weather, top: false, bottom: true)
+            key(.calendar, asset: "KeyCalendar", height: 128)
+            key(.home, asset: "KeyHome", height: 110)
+            key(.weather, asset: "KeyWeather", height: 128)
         }
-        .padding(9 * s)
+        .frame(width: 126 * s, height: 372 * s)
+        .frame(width: 144 * s, height: 380 * s)
         .background {
-            Capsule().fill(LinearGradient(colors: [Color(white: 0.84), Color(white: 0.47), Color(white: 0.78)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            Image("RailMetal").resizable().widgetAccentedRenderingMode(.fullColor)
         }
-        .overlay { Capsule().strokeBorder(Color.white.opacity(0.45), lineWidth: 2 * s) }
     }
-    private func key(_ page: Page, top: Bool, bottom: Bool) -> some View {
-        let shape = UnevenRoundedRectangle(topLeadingRadius: (top ? 64 : 12) * s, bottomLeadingRadius: (bottom ? 64 : 12) * s, bottomTrailingRadius: (bottom ? 64 : 12) * s, topTrailingRadius: (top ? 64 : 12) * s)
-        return Button(intent: SelectPage(page)) {
-            ZStack {
-                shape.fill(LinearGradient(colors: [Color(white: 0.97), Color(white: 0.82)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                shape.strokeBorder(Color.white.opacity(0.85), lineWidth: 2 * s)
-                Capsule().fill(page.indicator)
-                    .overlay { Capsule().strokeBorder(Color.black.opacity(0.16), lineWidth: s) }
-                    .frame(width: 28 * s, height: 8 * s)
-            }.frame(maxWidth: .infinity, maxHeight: .infinity)
-        }.buttonStyle(.plain)
-            .accessibilityLabel(page.label)
-            .accessibilityAddTraits(active == page ? .isSelected : [])
+    private func key(_ page: Page, asset: String, height: CGFloat) -> some View {
+        Button(intent: SelectPage(page)) {
+            Image(asset).resizable().widgetAccentedRenderingMode(.fullColor)
+                .frame(width: 126 * s, height: height * s)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(page.label)
+        .accessibilityAddTraits(active == page ? .isSelected : [])
     }
 }
 
