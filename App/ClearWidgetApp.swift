@@ -10,7 +10,10 @@ struct ClearWidgetApp: App {
                 Form {
                     Section("Widget") {
                         Text("Agregá ClearWidget mediano a la pantalla de inicio y elegí la apariencia Transparente en la personalización de iOS.")
-                        Text("Versión de validación. Todavía no hay datos meteorológicos reales.")
+                        Text("Pronóstico para Córdoba Capital. No usa GPS.")
+                        Text("Temperatura estimada actual, próxima hora y máxima de mañana.")
+                        Link("Datos: Open-Meteo · ECMWF IFS 9 km", destination: URL(string: "https://open-meteo.com/")!)
+                        Link("Modelo meteorológico ECMWF", destination: URL(string: "https://www.ecmwf.int/")!)
                     }
                     Section("Prueba de enlaces") {
                         Button("Abrir Clima de Apple") { launch("weather://") }
