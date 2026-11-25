@@ -92,7 +92,7 @@ private struct ClearView: View {
             HStack(spacing: 28 * s) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 74 * s)
-                        .fill(mode == .fullColor ? Color.black.opacity(0.14) : Color.clear)
+                        .fill(mode == .fullColor ? Color.black.opacity(0.14) : Color.black.opacity(0.08))
                     RoundedRectangle(cornerRadius: 74 * s)
                         .strokeBorder(Color.white.opacity(0.22), lineWidth: 2.5 * s)
                     switch entry.page {
@@ -118,16 +118,46 @@ private struct ClearView: View {
     }
 }
 
+// Original handwritten lettering recreated as one lightweight local vector.
+// Normalized from the reference proportions; no downloaded artwork or wallpaper.
+private struct HelloMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        let sx = rect.width / 250, sy = rect.height / 84
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * sx, y: y * sy) }
+        var a = Path()
+        a.move(to: p(3, 78))
+        a.addQuadCurve(to: p(41, 46), control: p(24, 62))
+        a.addCurve(to: p(42, 5), control1: p(63, 14), control2: p(48, -4))
+        a.addCurve(to: p(27, 78), control1: p(30, 13), control2: p(30, 61))
+        a.addCurve(to: p(61, 54), control1: p(38, 55), control2: p(53, 35))
+        a.addCurve(to: p(75, 80), control1: p(76, 59), control2: p(55, 83))
+        a.addCurve(to: p(103, 49), control1: p(91, 80), control2: p(111, 52))
+        a.addCurve(to: p(83, 67), control1: p(92, 39), control2: p(76, 54))
+        a.addCurve(to: p(126, 76), control1: p(88, 91), control2: p(111, 82))
+        a.addCurve(to: p(139, 5), control1: p(148, 53), control2: p(156, 3))
+        a.addCurve(to: p(123, 66), control1: p(128, 4), control2: p(117, 50))
+        a.addCurve(to: p(163, 75), control1: p(123, 87), control2: p(144, 83))
+        a.addCurve(to: p(181, 6), control1: p(189, 48), control2: p(196, 3))
+        a.addCurve(to: p(163, 66), control1: p(171, 7), control2: p(155, 53))
+        a.addCurve(to: p(198, 76), control1: p(167, 87), control2: p(184, 82))
+        a.addCurve(to: p(214, 44), control1: p(190, 66), control2: p(199, 46))
+        a.addCurve(to: p(226, 63), control1: p(228, 40), control2: p(232, 52))
+        a.addCurve(to: p(198, 76), control1: p(223, 80), control2: p(208, 84))
+        a.move(to: p(218, 44))
+        a.addQuadCurve(to: p(247, 41), control: p(239, 54))
+        return a
+    }
+}
+
 private struct HomePage: View {
     let date: Date
     let s: CGFloat
     var body: some View {
         HStack(spacing: 26 * s) {
-            Text("hello")
-                .font(.custom("SnellRoundhand", size: 106 * s))
-                .minimumScaleFactor(0.7)
+            HelloMark()
+                .stroke(Color.white.opacity(0.86), style: StrokeStyle(lineWidth: 5.5 * s, lineCap: .round, lineJoin: .round))
+                .frame(width: 250 * s, height: 84 * s)
                 .frame(width: 300 * s)
-                .foregroundStyle(.white.opacity(0.87))
                 .accessibilityLabel("Hello")
             VStack(alignment: .trailing, spacing: 5 * s) {
                 Text(date.formatted(.dateTime.weekday(.wide).locale(spanish)))
@@ -200,30 +230,55 @@ private struct CalendarPage: View {
     }
 }
 
+private struct WeatherGlyph: View {
+    let symbol: String
+    let s: CGFloat
+    var body: some View {
+        if symbol == "cloud.sun" || symbol == "cloud.moon" {
+            ZStack {
+                Circle().strokeBorder(Color.white.opacity(0.7), lineWidth: 5 * s)
+                    .frame(width: 160 * s, height: 160 * s)
+                Image(systemName: "cloud.fill")
+                    .font(.system(size: 96 * s, weight: .regular))
+                    .foregroundStyle(Color(white: 0.21))
+                    .overlay {
+                        Image(systemName: "cloud")
+                            .font(.system(size: 96 * s, weight: .ultraLight))
+                            .foregroundStyle(.white.opacity(0.65))
+                    }
+                    .offset(x: -22 * s, y: 51 * s)
+            }.frame(width: 190 * s, height: 180 * s)
+        } else {
+            Image(systemName: symbol)
+                .font(.system(size: 136 * s, weight: .ultraLight))
+                .frame(width: 190 * s, height: 180 * s)
+        }
+    }
+}
+
 private struct WeatherPage: View {
     let s: CGFloat
     let weather: WeatherReading
     var body: some View {
-        HStack(spacing: 22 * s) {
+        HStack(spacing: 23 * s) {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Ahora").font(.system(size: 34 * s, design: .rounded)).foregroundStyle(.white.opacity(0.70))
                 Spacer(minLength: 0)
-                Image(systemName: weather.symbol)
-                    .font(.system(size: 136 * s, weight: .ultraLight))
-                    .foregroundStyle(.white.opacity(0.55))
+                WeatherGlyph(symbol: weather.symbol, s: s)
+                    .foregroundStyle(.white.opacity(0.65))
                     .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
                 Spacer(minLength: 0)
                 Text(WeatherReading.degrees(weather.current)).font(.system(size: 50 * s, weight: .semibold, design: .rounded))
                     .frame(maxWidth: .infinity, alignment: .trailing)
-            }.padding(40 * s).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }.padding(40 * s).frame(width: 373 * s).frame(maxHeight: .infinity)
                 .background { tile }
-            VStack(spacing: 20 * s) {
+            VStack(spacing: 21 * s) {
                 smallTile("Próxima hora", weather.nextHour)
                 smallTile("Mañana", weather.tomorrowHigh)
-                    .accessibilityLabel("Máxima de mañana")
+                    .accessibilityLabel("Máxima de mañana: \(WeatherReading.degrees(weather.tomorrowHigh))")
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
-        }.padding(26 * s).contentShape(Rectangle())
+        }.padding(.horizontal, 26 * s).padding(.vertical, 24 * s).contentShape(Rectangle())
         .accessibilityHint(weather.fetchedAt.map { "Pronóstico ECMWF actualizado \($0.formatted(date: .omitted, time: .shortened))" } ?? "Datos meteorológicos no disponibles")
     }
     private var tile: some View {
@@ -237,7 +292,7 @@ private struct WeatherPage: View {
                 .foregroundStyle(.white.opacity(0.70)).lineLimit(1).minimumScaleFactor(0.72)
             Text(WeatherReading.degrees(temperature)).font(.system(size: 50 * s, weight: .semibold, design: .rounded))
         }
-        .padding(.horizontal, 50 * s)
+        .padding(.horizontal, 55 * s)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background { tile }
     }
