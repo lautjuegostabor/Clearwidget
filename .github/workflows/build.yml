@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-26-intel
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +69,7 @@ jobs:
           xcodebuild -version
           xcodebuild -showsdks
           xcodegen generate
-          xcodebuild -project ClearWidget.xcodeproj -scheme ClearWidget -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+          xcodebuild -project ClearWidget.xcodeproj -scheme ClearWidget -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build ARCHS=arm64 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
       - name: Verify and package unsigned IPA
         run: |
           set -euo pipefail
