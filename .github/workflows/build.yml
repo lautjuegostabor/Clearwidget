@@ -1,0 +1,62 @@
+name: Build ClearWidget IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: clearwidget-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select iOS 26 SDK or newer
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob, re, subprocess, os
+          candidates = []
+          for app in glob.glob('/Applications/Xcode*.app'):
+              developer = app + '/Contents/Developer'
+              env = dict(os.environ, DEVELOPER_DIR=developer)
+              p = subprocess.run(['xcodebuild','-version'], env=env, text=True, capture_output=True)
+              match = re.search(r'Xcode (\d+(?:\.\d+)*)', p.stdout)
+              if match and int(match.group(1).split('.')[0]) >= 26:
+                  candidates.append((tuple(map(int, match.group(1).split('.'))), developer))
+          if not candidates:
+              raise SystemExit('Xcode 26 or newer is required for native Liquid Glass')
+          selected = max(candidates)[1]
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('DEVELOPER_DIR=' + selected + '\n')
+          PY
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project and build
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcodebuild -showsdks
+          xcodegen generate
+          xcodebuild -project ClearWidget.xcodeproj -scheme ClearWidget -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Verify and package unsigned IPA
+        run: |
+          set -euo pipefail
+          app=build/Build/Products/Release-iphoneos/ClearWidget.app
+          ext="$app/PlugIns/ClearWidgetExtension.appex"
+          test -f "$app/ClearWidget"
+          test -f "$ext/ClearWidgetExtension"
+          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$ext/Info.plist" | grep -Fx com.apple.widgetkit-extension
+          mkdir -p Payload
+          cp -R "$app" Payload/
+          zip -qry ClearWidget-v0.1.0.ipa Payload
+          unzip -t ClearWidget-v0.1.0.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClearWidget-v0.1.0
+          path: ClearWidget-v0.1.0.ipa
+          if-no-files-found: error
