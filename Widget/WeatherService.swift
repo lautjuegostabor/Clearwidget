@@ -91,19 +91,11 @@ struct ForecastCache: Codable, Sendable {
 enum ForecastDisk {
     static let cacheKey = "clearwidget.ecmwf.cache.v1"
     static let attemptKey = "clearwidget.ecmwf.attempt.v1"
-    static let navigationKey = "clearwidget.navigation.v1"
     static let ttl: TimeInterval = 30 * 60
     static let retry: TimeInterval = 15 * 60
     static var cached: ForecastCache? {
         guard let data = UserDefaults.standard.data(forKey: cacheKey) else { return nil }
         return try? JSONDecoder().decode(ForecastCache.self, from: data)
-    }
-    static func markNavigation() {
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: navigationKey)
-    }
-    static func navigationRecent(at now: Date) -> Bool {
-        let elapsed = now.timeIntervalSince1970 - UserDefaults.standard.double(forKey: navigationKey)
-        return elapsed >= 0 && elapsed < 15
     }
     static func nextRefresh(at now: Date) -> Date {
         if let cache = cached, (0..<ttl).contains(now.timeIntervalSince(cache.fetchedAt)) {
@@ -131,7 +123,7 @@ actor WeatherService {
 
     // Only scheduled timeline generation may fetch. Navigation uses local cache.
     func refreshIfDue(at now: Date) async {
-        guard !inFlight, !ForecastDisk.navigationRecent(at: now) else { return }
+        guard !inFlight else { return }
         if let cache = ForecastDisk.cached, (0..<ForecastDisk.ttl).contains(now.timeIntervalSince(cache.fetchedAt)) { return }
         let defaults = UserDefaults.standard
         let sinceAttempt = now.timeIntervalSince1970 - defaults.double(forKey: ForecastDisk.attemptKey)

@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 import WidgetKit
 import AppIntents
 
@@ -24,127 +25,157 @@ enum Page: String, AppEnum {
     }
 }
 
+// The project intentionally supports a single medium widget. The same kind and
+// bundle IDs are retained so existing BariStore profiles can be reused.
 private enum Store {
-    static let key = "clearwidget.activePage.v1"
-    static var page: Page { Page(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .home }
-    static func set(_ page: Page) {
-        guard self.page != page else { return }
-        UserDefaults.standard.set(page.rawValue, forKey: key)
+    private static let key = "clearwidget.navigation.state.v2"
+    private static let lock = NSLock()
+    static var page: Page {
+        let raw = UserDefaults.standard.string(forKey: key)?.split(separator: "|").first.map(String.init)
+        return raw.flatMap(Page.init(rawValue:)) ??
+            Page(rawValue: UserDefaults.standard.string(forKey: "clearwidget.activePage.v1") ?? "") ?? .home
+    }
+    static func select(_ page: Page) {
+        lock.lock(); defer { lock.unlock() }
+        // A single write carries both the selected page and the reload reason.
+        UserDefaults.standard.set(page.rawValue + "|tap", forKey: key)
+    }
+    static func consumeTap() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard let raw = UserDefaults.standard.string(forKey: key), raw.hasSuffix("|tap") else { return false }
+        UserDefaults.standard.set(String(raw.dropLast(4)), forKey: key)
+        return true
     }
 }
 
 struct SelectPage: AppIntent {
     static var title: LocalizedStringResource = "Cambiar pantalla"
     static var openAppWhenRun = false
+    static var allowedExecutionTargets: IntentExecutionTargets { .widgetKitExtension }
     @Parameter(title: "Pantalla") var page: Page
     init() {}
     init(_ page: Page) { self.page = page }
     func perform() async throws -> some IntentResult {
-        ForecastDisk.markNavigation()
-        Store.set(page)
+        Store.select(page)
         return .result()
     }
+}
+
+struct ClearConfiguration: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "Acciones de ClearWidget"
+    static var description: IntentDescription = "Elegí las aplicaciones que abrirá cada pantalla."
+    @Parameter(title: "Abrir Clima") var weather: SystemShortcut?
+    @Parameter(title: "Abrir Calendario") var calendar: SystemShortcut?
+    init() {}
 }
 
 private struct Entry: TimelineEntry {
     let date: Date
     let page: Page
     let weather: WeatherReading
+    let configuration: ClearConfiguration
 }
-private struct Provider: TimelineProvider {
-    private func entry(at now: Date, page: Page) -> Entry {
-        Entry(date: now, page: page,
-              weather: page == .weather ? ForecastDisk.cached?.reading(at: now) ?? .empty : .empty)
+
+private struct Provider: AppIntentTimelineProvider {
+    private func entry(at now: Date, configuration: ClearConfiguration) -> Entry {
+        let page = Store.page
+        return Entry(date: now, page: page,
+            weather: page == .weather ? ForecastDisk.cached?.reading(at: now) ?? .empty : .empty,
+            configuration: configuration)
     }
-    func placeholder(in context: Context) -> Entry { Entry(date: Date(), page: .home, weather: .empty) }
-    func getSnapshot(in context: Context, completion: @escaping (Entry) -> Void) {
-        completion(entry(at: Date(), page: Store.page))
+    func placeholder(in context: Context) -> Entry {
+        Entry(date: Date(), page: .home, weather: .empty, configuration: ClearConfiguration())
     }
-    func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> Void) {
+    func snapshot(for configuration: ClearConfiguration, in context: Context) async -> Entry {
+        entry(at: Date(), configuration: configuration)
+    }
+    func timeline(for configuration: ClearConfiguration, in context: Context) async -> Timeline<Entry> {
         let now = Date()
-        // A tap reloads the timeline but must never wait for a network fetch.
-        if context.isPreview || ForecastDisk.navigationRecent(at: now) {
-            complete(at: now, completion: completion)
-            return
-        }
-        Task {
+        let tap = !context.isPreview && Store.consumeTap()
+        if !context.isPreview && !tap {
             await WeatherService.shared.refreshIfDue(at: now)
-            complete(at: Date(), completion: completion)
         }
-    }
-    private func complete(at now: Date, completion: @escaping (Timeline<Entry>) -> Void) {
-        let calendar = Calendar.autoupdatingCurrent
-        let midnight = calendar.dateInterval(of: .day, for: now)?.end ?? now.addingTimeInterval(3600)
-        let next = min(midnight, ForecastDisk.nextRefresh(at: now))
-        completion(Timeline(entries: [entry(at: now, page: Store.page)], policy: .after(next)))
+        // Read the latest state after any scheduled network request, never restore an old page.
+        let date = Date()
+        let midnight = Calendar.autoupdatingCurrent.dateInterval(of: .day, for: date)?.end ?? date.addingTimeInterval(3600)
+        let refresh = tap && ForecastDisk.cached == nil ? date.addingTimeInterval(60) : ForecastDisk.nextRefresh(at: date)
+        return Timeline(entries: [entry(at: date, configuration: configuration)], policy: .after(min(midnight, refresh)))
     }
 }
 
 private let spanish = Locale(identifier: "es_AR")
 
+// Artwork dimensions and positions are based on the original 1480 × 708 PNGs.
+private struct OriginalImage: View {
+    let name: String
+    var body: some View {
+        Image(name).resizable().widgetAccentedRenderingMode(.fullColor)
+            .accessibilityHidden(true)
+    }
+}
+
 private struct ClearView: View {
     let entry: Entry
-    @Environment(\.widgetRenderingMode) private var mode
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         GeometryReader { geometry in
-            let s = min(geometry.size.width / 1050, geometry.size.height / 490)
-            HStack(spacing: 28 * s) {
+            let s = min(geometry.size.width / 1480, geometry.size.height / 708)
+            ZStack(alignment: .topLeading) {
+                // This asset retains the original 20% alpha tint and border. iOS owns the outer glass.
+                OriginalImage(name: "OriginalFrame")
+                    .frame(width: 1480 * s, height: 708 * s)
+                    .transition(.identity)
                 ZStack {
-                    RoundedRectangle(cornerRadius: 74 * s)
-                        .fill(mode == .fullColor ? Color.black.opacity(0.14) : Color.black.opacity(0.08))
-                    RoundedRectangle(cornerRadius: 74 * s)
-                        .strokeBorder(Color.white.opacity(0.22), lineWidth: 2.5 * s)
-                    switch entry.page {
-                    case .home: HomePage(date: entry.date, s: s)
-                    case .calendar:
-                        Link(destination: URL(string: "clearwidget://calendar")!) {
-                            CalendarPage(date: entry.date, s: s)
-                        }
-                    case .weather:
-                        Link(destination: URL(string: "clearwidget://weather")!) {
-                            WeatherPage(s: s, weather: entry.weather)
-                        }
-                    }
+                    panel(s: s)
+                        .id(entry.page)
+                        .transition(.blurReplace)
                 }
-                .frame(width: 824 * s, height: 460 * s)
+                .frame(width: 1164 * s, height: 652 * s)
+                .clipped()
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.28), value: entry.page)
+                .position(x: 610 * s, y: 354 * s)
                 NavigationRail(active: entry.page, s: s)
-                    .frame(width: 144 * s, height: 380 * s)
+                    .frame(width: 173 * s, height: 506 * s)
+                    .position(x: 1334.5 * s, y: 352 * s)
+                    .transition(.identity)
             }
+            .frame(width: 1480 * s, height: 708 * s)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .foregroundStyle(.white)
         .containerBackground(for: .widget) { Color.black.opacity(0.12) }
     }
-}
 
-// Original handwritten lettering recreated as one lightweight local vector.
-// Normalized from the reference proportions; no downloaded artwork or wallpaper.
-private struct HelloMark: Shape {
-    func path(in rect: CGRect) -> Path {
-        let sx = rect.width / 250, sy = rect.height / 84
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * sx, y: y * sy) }
-        var a = Path()
-        a.move(to: p(3, 78))
-        a.addQuadCurve(to: p(41, 46), control: p(24, 62))
-        a.addCurve(to: p(42, 5), control1: p(63, 14), control2: p(48, -4))
-        a.addCurve(to: p(27, 78), control1: p(30, 13), control2: p(30, 61))
-        a.addCurve(to: p(61, 54), control1: p(38, 55), control2: p(53, 35))
-        a.addCurve(to: p(75, 80), control1: p(76, 59), control2: p(55, 83))
-        a.addCurve(to: p(103, 49), control1: p(91, 80), control2: p(111, 52))
-        a.addCurve(to: p(83, 67), control1: p(92, 39), control2: p(76, 54))
-        a.addCurve(to: p(126, 76), control1: p(88, 91), control2: p(111, 82))
-        a.addCurve(to: p(139, 5), control1: p(148, 53), control2: p(156, 3))
-        a.addCurve(to: p(123, 66), control1: p(128, 4), control2: p(117, 50))
-        a.addCurve(to: p(163, 75), control1: p(123, 87), control2: p(144, 83))
-        a.addCurve(to: p(181, 6), control1: p(189, 48), control2: p(196, 3))
-        a.addCurve(to: p(163, 66), control1: p(171, 7), control2: p(155, 53))
-        a.addCurve(to: p(198, 76), control1: p(167, 87), control2: p(184, 82))
-        a.addCurve(to: p(214, 44), control1: p(190, 66), control2: p(199, 46))
-        a.addCurve(to: p(226, 63), control1: p(228, 40), control2: p(232, 52))
-        a.addCurve(to: p(198, 76), control1: p(223, 80), control2: p(208, 84))
-        a.move(to: p(218, 44))
-        a.addQuadCurve(to: p(247, 41), control: p(239, 54))
-        return a
+    @ViewBuilder private func panel(s: CGFloat) -> some View {
+        let unit = s * 1164 / 824
+        switch entry.page {
+        case .home:
+            HomePage(date: entry.date, s: s)
+        case .calendar:
+            action(entry.configuration.calendar, page: .calendar) {
+                CalendarPage(date: entry.date, s: unit)
+                    .frame(width: 824 * unit, height: 460 * unit)
+            }
+        case .weather:
+            action(entry.configuration.weather, page: .weather) {
+                WeatherPage(s: unit, weather: entry.weather)
+                    .frame(width: 824 * unit, height: 460 * unit)
+            }
+        }
+    }
+
+    // Apple's iOS 27 API opens the configured application directly, not ClearWidget.
+    // An unconfigured control stays in the widget; there is no old URL relay.
+    @ViewBuilder private func action<V: View>(_ shortcut: SystemShortcut?, page: Page, @ViewBuilder content: () -> V) -> some View {
+        if let shortcut {
+            Button(intent: RunSystemShortcutIntent(shortcut: shortcut)) { content().contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .accessibilityHint("Abrir aplicación configurada")
+        } else {
+            Button(intent: SelectPage(page)) { content().contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .accessibilityHint("Elegí la aplicación en Editar widget")
+        }
     }
 }
 
@@ -153,29 +184,26 @@ private struct HomePage: View {
     let s: CGFloat
     var body: some View {
         ZStack(alignment: .topLeading) {
-            HelloMark()
-                .stroke(Color.white.opacity(0.86), style: StrokeStyle(lineWidth: 5.5 * s, lineCap: .round, lineJoin: .round))
-                .frame(width: 250 * s, height: 84 * s)
-                .position(x: 220 * s, y: 230 * s)
-                .accessibilityLabel("Hello")
-            VStack(alignment: .trailing, spacing: 5 * s) {
+            // Original combined hello / orange disc, cropped without resampling.
+            OriginalImage(name: "OriginalHome")
+                .frame(width: 910 * s, height: 153 * s)
+                .position(x: 577 * s, y: 336.5 * s)
+            VStack(alignment: .trailing, spacing: 6 * s) {
                 Text(date.formatted(.dateTime.weekday(.wide).locale(spanish)))
                 Text(date.formatted(.dateTime.month(.wide).locale(spanish)))
             }
-            .font(.system(size: 34 * s, weight: .regular, design: .rounded))
-            .lineLimit(1).minimumScaleFactor(0.7)
-            .frame(width: 235 * s, alignment: .trailing)
-            .position(x: 488 * s, y: 230 * s)
-            ZStack {
-                Image("HomeOrange").resizable().widgetAccentedRenderingMode(.fullColor)
-                Text(String(Calendar.autoupdatingCurrent.component(.day, from: date)))
-                    .font(.system(size: 44 * s, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 96 * s, height: 96 * s)
-            .position(x: 685 * s, y: 230 * s)
+            .font(.system(size: 48 * s, weight: .regular, design: .rounded))
+            .lineLimit(1).minimumScaleFactor(0.75)
+            .frame(width: 340 * s, alignment: .trailing)
+            .position(x: 703 * s, y: 326 * s)
+            Text(String(Calendar.autoupdatingCurrent.component(.day, from: date)))
+                .font(.system(size: 62 * s, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white)
+                .frame(width: 136 * s, height: 136 * s)
+                .position(x: 964 * s, y: 328 * s)
         }
-        .frame(width: 824 * s, height: 460 * s)
+        .frame(width: 1164 * s, height: 652 * s)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -273,7 +301,7 @@ private struct WeatherPage: View {
                     .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
                 Spacer(minLength: 0)
-                Text(WeatherReading.degrees(weather.current)).font(.system(size: 50 * s, weight: .semibold, design: .rounded))
+                Text(WeatherReading.degrees(weather.current)).contentTransition(.numericText()).font(.system(size: 50 * s, weight: .semibold, design: .rounded))
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }.padding(40 * s).frame(width: 373 * s).frame(maxHeight: .infinity)
                 .background { tile }
@@ -294,7 +322,7 @@ private struct WeatherPage: View {
         VStack(alignment: .leading, spacing: 6 * s) {
             Text(label).font(.system(size: 34 * s, design: .rounded))
                 .foregroundStyle(.white.opacity(0.70)).lineLimit(1).minimumScaleFactor(0.72)
-            Text(WeatherReading.degrees(temperature)).font(.system(size: 50 * s, weight: .semibold, design: .rounded))
+            Text(WeatherReading.degrees(temperature)).contentTransition(.numericText()).font(.system(size: 50 * s, weight: .semibold, design: .rounded))
         }
         .padding(.horizontal, 55 * s)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -302,28 +330,35 @@ private struct WeatherPage: View {
     }
 }
 
+// Toggle's optimistic state is rendered by WidgetKit before the intent finishes.
+// The selected key stays slightly recessed; a second tap cannot deselect the page.
+private struct MetalToggleStyle: ToggleStyle {
+    let asset: String
+    let width: CGFloat
+    let height: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        OriginalImage(name: configuration.isOn ? asset + "On" : asset)
+            .frame(width: width, height: height)
+            .contentShape(Rectangle())
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: configuration.isOn)
+    }
+}
 private struct NavigationRail: View {
     let active: Page
     let s: CGFloat
     var body: some View {
-        VStack(spacing: 3 * s) {
-            key(.calendar, asset: "KeyCalendar", height: 128)
-            key(.home, asset: "KeyHome", height: 110)
-            key(.weather, asset: "KeyWeather", height: 128)
-        }
-        .frame(width: 126 * s, height: 372 * s)
-        .frame(width: 144 * s, height: 380 * s)
-        .background {
-            Image("RailMetal").resizable().widgetAccentedRenderingMode(.fullColor)
+        VStack(spacing: 0) {
+            key(.calendar, asset: "OriginalKeyCalendar", height: 176)
+            key(.home, asset: "OriginalKeyHome", height: 156)
+            key(.weather, asset: "OriginalKeyWeather", height: 174)
         }
     }
     private func key(_ page: Page, asset: String, height: CGFloat) -> some View {
-        Button(intent: SelectPage(page)) {
-            Image(asset).resizable().widgetAccentedRenderingMode(.fullColor)
-                .frame(width: 126 * s, height: height * s)
-                .contentShape(Rectangle())
+        Toggle(isOn: active == page, intent: SelectPage(page)) {
+            Text(page.label)
         }
-        .buttonStyle(.plain)
+        .toggleStyle(MetalToggleStyle(asset: asset, width: 173 * s, height: height * s))
         .accessibilityLabel(page.label)
         .accessibilityAddTraits(active == page ? .isSelected : [])
     }
@@ -332,7 +367,7 @@ private struct NavigationRail: View {
 @main
 struct ClearWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "ClearWidget", provider: Provider()) { entry in
+        AppIntentConfiguration(kind: "ClearWidget", intent: ClearConfiguration.self, provider: Provider()) { entry in
             ClearView(entry: entry)
         }
         .configurationDisplayName("ClearWidget")

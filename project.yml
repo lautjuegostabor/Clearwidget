@@ -1,12 +1,12 @@
 name: ClearWidget
 options:
   deploymentTarget:
-    iOS: '26.0'
+    iOS: '27.0'
 settings:
   base:
     SWIFT_VERSION: '5.0'
-    MARKETING_VERSION: '0.3.0'
-    CURRENT_PROJECT_VERSION: '3'
+    MARKETING_VERSION: '0.4.0'
+    CURRENT_PROJECT_VERSION: '4'
     CODE_SIGNING_ALLOWED: 'NO'
 targets:
   ClearWidget:
@@ -22,9 +22,6 @@ targets:
       properties:
         CFBundleDisplayName: ClearWidget
         UILaunchScreen: {}
-        CFBundleURLTypes:
-          - CFBundleURLName: com.clearwidget.app
-            CFBundleURLSchemes: [clearwidget]
     dependencies:
       - target: ClearWidgetExtension
         embed: true

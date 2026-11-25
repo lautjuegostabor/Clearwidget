@@ -1,22 +1,23 @@
-# ClearWidget — 0.3.0 (validación técnica)
-Widget mediano para iPhone, SwiftUI + WidgetKit. Reconstrucción visual de referencia; no contiene imágenes de terceros ni capturas del fondo.
+# ClearWidget 0.4.0 — personal-use validation
+Native iPhone medium widget, iOS 27+, SwiftUI and WidgetKit.
+The original app and widget bundle identifiers and widget kind are unchanged. No App Groups, GPS, background service, timers or runtime asset requests.
 
-- Tres vistas excluyentes; navegación mediante AppIntent en la extensión.
-- Estado local de la extensión, compartido entre instancias del mismo widget; no App Groups.
-- Sin temporizadores, GPS, polling continuo ni procesos persistentes. Pronóstico de Open-Meteo (ECMWF IFS HRES 9 km), uso personal no comercial. Ubicación fija: Córdoba Capital; no requiere permiso de ubicación.
-- WidgetKit solicita una actualización cada 30 minutos y al cambio de día; iOS decide cuándo ejecutarla. La navegación usa la caché y suprime nuevas consultas durante 15 segundos. Una petición para temperatura actual, próxima hora y máxima horaria de mañana. Caché válida 30 min; conserva el último pronóstico hasta 6 h si falla la red, luego muestra guiones. Reintento no antes de 15 min.
-- Fondo administrado por el sistema. El modo Claro de la pantalla de inicio habilita el material de cristal; el sistema puede transformar los colores.
-- Los enlaces al clima y calendario se enrutan mediante la app contenedora (puede aparecer brevemente); esquemas externos sujetos a prueba en el dispositivo.
-- Datos: [Open-Meteo](https://open-meteo.com/) / [ECMWF](https://www.ecmwf.int/) (CC BY 4.0). Pronóstico modelado, no lectura de estación; la máxima de mañana se calcula con las horas locales. El saludo y los controles se reconstruyen con vectores locales; el icono meteorológico combina un diseño propio y SF Symbols. No son los recursos originales del autor. En modo transparente se usa fullColor para preservar el día rojo y los controles; debe verificarse en el dispositivo. La API en vivo y el funcionamiento en iOS aún requieren validación.
-- No hay aún personalización de las acciones desde la app.
+## Changes
+- Original Clear Medium (Lokki) RGBA artwork: frame, metallic keys, greeting and orange disc. The build verifies exact pixel hashes against the supplied 1480 × 708 reference files and crops keys without resampling. Only the selected key has a new subtle darkened state. This is a personal-use reconstruction; do not distribute the original artwork without permission.
+- Original panel alpha is 20%; the outer glass is supplied by iOS in its transparent appearance. No wallpaper capture.
+- Native blurReplace animation targeted at panel only (0.28 s), Reduce Motion respected in requested animation; fixed frame. Optimistic Toggle states (0.10 s), no permanent animation. Timing and visual behavior require physical verification.
+- RunSystemShortcutIntent, Apple's iOS 27 API: long-press widget → Edit Widget → choose the installed Weather and Calendar applications. No URL relay or UIApplication.open. Unconfigured areas remain in the widget. One-time user choice is mandatory.
+- Single stored page + tap marker; timeline consumes the marker before networking. Scheduled weather refresh remains separate; WidgetKit provides no guaranteed reload reason and can coalesce requests. The currently supported single widget shares local state across copies.
+- Existing ECMWF/Open-Meteo 30-minute cache, retry throttling and 6 h expiry retained. Córdoba fixed; no GPS. Custom Widgy weather icon mapping is not verified, so SF Symbols and the existing local weather glyph remain for now.
+- Weather and calendar links are now native buttons. The user must select both destinations. No opening ClearWidget as an intermediate step.
 
-## Compilar
-Actions → Build ClearWidget IPA. El IPA es sin firmar; SideStore debe firmar app y extensión. No se garantiza compatibilidad hasta instalar y probar.
-## Pruebas
-El workflow genera los recursos SVG locales, valida la respuesta de la API pública y ejecuta Tests/WeatherTests.swift sobre un pronóstico sintético determinista antes de compilar. No demuestra precisión meteorológica ni consumo en iPhone.
-## Criterios de aceptación en iPhone
-1. Instalar y agregar widget mediano. Verificar cristal nativo sobre dos fondos distintos.
-2. Alternar 30 veces las tres pantallas; registrar video a 60 fps y calcular mediana y p95 desde toque hasta nuevo contenido visible. Comparar con Widgy en las mismas condiciones.
-3. Confirmar persistencia, cambio de día, lunes como inicio de semana, fecha actual roja y enlaces.
-4. Comparar capturas a igual tamaño; revisar proporciones, icono, escritura, colores y botones.
-5. Medir consumo en condiciones equivalentes durante 24 h, con y sin widget; ninguna afirmación de mejora cuantitativa hasta medir.
+## Build
+Xcode 27 runner; tests before packaging; build-time original asset retrieval and checksum verification. If the original server is unavailable, supply the two exact PNG files under OriginalAssets/ (ignored by git) on the build machine. Never substitute approximate assets silently.
+The IPA remains unsigned; install with BariStore preserving BOTH components and existing App IDs.
+## Acceptance on iPhone
+1. Update existing app using same IDs; add/edit widget and configure both shortcuts.
+2. Verify tapping weather/calendar opens destination directly with no ClearWidget intermediate.
+3. Compare same-wallpaper screenshots, all three views, red date, original artwork and native glass.
+4. Record 30 interactions at 60 fps and measure tap-to-visible median/p95 vs Widgy; evaluate blur and selected key response separately.
+5. Check battery in comparable 24 h usage and offline cache; measure rather than promise.
+CI verifies code and asset generation; cannot prove signing, physical appearance, latency or battery.

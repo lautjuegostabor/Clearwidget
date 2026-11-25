@@ -10,11 +10,11 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
-    runs-on: macos-26-intel
+    runs-on: xcode-27
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Select iOS 26 SDK or newer
+      - name: Select iOS 27 SDK or newer
         shell: bash
         run: |
           set -euo pipefail
@@ -26,10 +26,10 @@ jobs:
               env = dict(os.environ, DEVELOPER_DIR=developer)
               p = subprocess.run(['xcodebuild','-version'], env=env, text=True, capture_output=True)
               match = re.search(r'Xcode (\d+(?:\.\d+)*)', p.stdout)
-              if match and int(match.group(1).split('.')[0]) >= 26:
+              if match and int(match.group(1).split('.')[0]) >= 27:
                   candidates.append((tuple(map(int, match.group(1).split('.'))), developer))
           if not candidates:
-              raise SystemExit('Xcode 26 or newer is required for native Liquid Glass')
+              raise SystemExit('Xcode 27 or newer is required for direct application actions')
           selected = max(candidates)[1]
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write('DEVELOPER_DIR=' + selected + '\n')
@@ -41,8 +41,11 @@ jobs:
           set -euo pipefail
           xcrun swiftc -swift-version 5 Widget/WeatherService.swift Tests/WeatherTests.swift -o /tmp/clearwidget-weather-tests
           /tmp/clearwidget-weather-tests
-      - name: Generate lightweight local assets
-        run: python3 Tools/generate_assets.py
+      - name: Generate exact local artwork
+        run: |
+          python3 -m venv /tmp/clearwidget-assets
+          /tmp/clearwidget-assets/bin/pip install 'Pillow>=11,<13'
+          /tmp/clearwidget-assets/bin/python Tools/generate_assets.py
       - name: Check live ECMWF response
         continue-on-error: true
         shell: bash
@@ -80,10 +83,10 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$ext/Info.plist" | grep -Fx com.apple.widgetkit-extension
           mkdir -p Payload
           cp -R "$app" Payload/
-          zip -qry ClearWidget-v0.3.0.ipa Payload
-          unzip -t ClearWidget-v0.3.0.ipa
+          zip -qry ClearWidget-v0.4.0.ipa Payload
+          unzip -t ClearWidget-v0.4.0.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: ClearWidget-v0.3.0
-          path: ClearWidget-v0.3.0.ipa
+          name: ClearWidget-v0.4.0
+          path: ClearWidget-v0.4.0.ipa
           if-no-files-found: error

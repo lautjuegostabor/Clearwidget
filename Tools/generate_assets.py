@@ -1,29 +1,65 @@
 #!/usr/bin/env python3
-"""Generate small local vector assets. No third-party assets or runtime rasterization."""
+"""Build-time extraction from original artwork; no asset networking on iPhone.
+Use the two original PNGs provided by the user if present in OriginalAssets/,
+otherwise retrieve the exact source URLs in the Widgy export. Verify decoded RGBA.
+"""
 from pathlib import Path
-import json
+from PIL import Image, ImageEnhance
+import hashlib, io, json, urllib.request
 
-root = Path("Widget/Assets.xcassets")
-root.mkdir(parents=True, exist_ok=True)
-(root/"Contents.json").write_text(json.dumps({"info":{"author":"xcode","version":1}}))
+ROOT = Path("Widget/Assets.xcassets")
+ROOT.mkdir(parents=True, exist_ok=True)
+(ROOT/"Contents.json").write_text(json.dumps({"info":{"author":"xcode","version":1}}))
+SOURCE = "https://widgy.fra1.digitaloceanspaces.com/images/"
+def load(filename, remote, expected):
+    local = Path("OriginalAssets") / filename
+    if local.is_file():
+        raw = local.read_bytes()
+    else:
+        req = urllib.request.Request(SOURCE + remote, headers={"User-Agent":"ClearWidget personal asset build"})
+        with urllib.request.urlopen(req, timeout=20) as response:
+            raw = response.read(2_000_001)
+    assert len(raw) <= 2_000_000, "Unexpected asset size"
+    image = Image.open(io.BytesIO(raw)).convert("RGBA")
+    assert image.size == (1480,708), f"Unexpected dimensions: {filename} {image.size}"
+    assert hashlib.sha256(image.tobytes()).hexdigest() == expected, f"Pixels differ from supplied reference: {filename}"
+    return image
 
-def image(name, w, h, content):
-    folder = root / (name + ".imageset")
+def write(name, im):
+    folder = ROOT / (name+".imageset")
     folder.mkdir(exist_ok=True)
-    (folder/"asset.svg").write_text(f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">{content}</svg>')
+    im.save(folder/"asset.png", optimize=True)
     (folder/"Contents.json").write_text(json.dumps({
-        "images":[{"filename":"asset.svg","idiom":"universal"}],
-        "info":{"author":"xcode","version":1},
-        "properties":{"preserves-vector-representation":True}
-    }))
+        "images":[{"filename":"asset.png","idiom":"universal"}],
+        "info":{"author":"xcode","version":1}}))
 
-image("TodayRed",96,76,'<rect x="0" y="0" width="96" height="76" rx="13" fill="#FF3B30"/>')
-image("HomeOrange",96,96,'<defs><linearGradient id="g" x1="0" x2="0.7" y1="0" y2="1"><stop stop-color="#FF7135"/><stop offset="1" stop-color="#FF3920"/></linearGradient></defs><circle cx="48" cy="48" r="47" fill="url(#g)" stroke="#FF9360" stroke-width="1"/>')
-defs = '''<defs><linearGradient id="metal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F9F9F9"/><stop offset="0.56" stop-color="#E8E8E8"/><stop offset="1" stop-color="#DADADA"/></linearGradient><linearGradient id="edge" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#A6A6A6"/></linearGradient></defs>'''
-for name, path, height, indicator, outline in [
-    ("KeyCalendar","M1 123 V65 A62 62 0 0 1 125 65 V123 Q125 127 120 127 H6 Q1 127 1 123Z",128,"#68FF26","#4BCE13"),
-    ("KeyHome","M1 10 Q1 1 10 1 H116 Q125 1 125 10 V100 Q125 109 116 109 H10 Q1 109 1 100Z",110,"#969696","#727272"),
-    ("KeyWeather","M1 5 Q1 1 6 1 H120 Q125 1 125 5 V63 A62 62 0 0 1 1 63Z",128,"#FF4B2B","#D43B24")]:
-    y=height/2-4
-    image(name,126,height,defs+f'<path d="{path}" fill="url(#metal)" stroke="#FDFDFD" stroke-width="1.8"/><rect x="49" y="{y}" width="28" height="8" rx="4" fill="{indicator}" stroke="{outline}" stroke-width="0.8"/><path d="M52 {y+1.5} H74" stroke="#FFFFFF" stroke-opacity="0.4" stroke-width="1"/>')
-image("RailMetal",144,380,'<defs><linearGradient id="r" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#ECECEC"/><stop offset="0.3" stop-color="#969696"/><stop offset="0.65" stop-color="#D1D1D1"/><stop offset="1" stop-color="#767676"/></linearGradient></defs><rect x="1" y="1" width="142" height="378" rx="71" fill="url(#r)" stroke="#D5D5D5" stroke-width="2"/><rect x="7" y="7" width="130" height="366" rx="65" fill="#343434" stroke="#F1F1F1" stroke-width="1.2"/>')
+frame = load("IMG_6090.png","7R3g3RfRAH2QLb7w8jh8ZKA167WGOrAkHm7UoQYy.png","ac8a7c257f1500ce5cfc953d5a1c5ec0ad9fb50444113447af28b936b91174ff")
+home = load("IMG_6089.png","UFlmOgcgQ9OTTlYsK1ttviDKbygEJN0U2wYjbEkq.png","87f099b59f696372c9c9fd66dbdcda91da5d565460fb1de7de1a99867e975b8b")
+assert frame.getpixel((740,354))[3] == 51 and home.getpixel((740,354))[3] == 0
+base = frame.copy()
+# Crops tessellate with no gap and preserve the exact normal-state image.
+boxes = [("OriginalKeyCalendar",(1248,99,1421,275)),
+         ("OriginalKeyHome",(1248,275,1421,431)),
+         ("OriginalKeyWeather",(1248,431,1421,605))]
+for name, box in boxes:
+    key = frame.crop(box)
+    write(name,key)
+    # Only a restrained static luminance change. Preserve original alpha and texture.
+    pressed = ImageEnhance.Brightness(key.convert("RGB")).enhance(0.91).convert("RGBA")
+    pressed.putalpha(key.getchannel("A"))
+    write(name+"On",pressed)
+    base.paste((0,0,0,0),box)
+write("OriginalFrame",base)
+write("OriginalHome",home.crop((150,288,1060,441)))
+# Pixel-identical reconstruction of normal rail, before selected-state shading.
+restored = base.copy()
+for name, box in boxes:
+    restored.paste(frame.crop(box),box[:2])
+assert restored.tobytes() == frame.tobytes()
+# Calendar uses the requested system red, not a color from the original.
+write("TodayRed",Image.new("RGBA",(96,76),(0,0,0,0)))
+from PIL import ImageDraw
+red = Image.new("RGBA",(96*3,76*3),(0,0,0,0))
+ImageDraw.Draw(red).rounded_rectangle((0,0,96*3-1,76*3-1),radius=13*3,fill="#FF3B30")
+write("TodayRed",red.resize((96,76),Image.Resampling.LANCZOS))
+print("Verified exact original RGBA pixels, alpha and rail reconstruction.")
