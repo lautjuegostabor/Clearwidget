@@ -61,6 +61,17 @@ struct SelectPage: AppIntent {
     }
 }
 
+// Consume taps on the informational home panel without launching the host.
+struct StayOnWidget: AppIntent {
+    static var title: LocalizedStringResource = "Permanecer en ClearWidget"
+    static var openAppWhenRun = false
+    static var allowedExecutionTargets: IntentExecutionTargets { .widgetKitExtension }
+    func perform() async throws -> some IntentResult {
+        Store.select(Store.page) // cache-only reload; no page change
+        return .result()
+    }
+}
+
 struct ClearConfiguration: WidgetConfigurationIntent {
     static var title: LocalizedStringResource = "Acciones de ClearWidget"
     static var description: IntentDescription = "Elegí las aplicaciones que abrirá cada pantalla."
@@ -150,7 +161,12 @@ private struct ClearView: View {
         let unit = s * 1164 / 824
         switch entry.page {
         case .home:
-            HomePage(date: entry.date, s: s)
+            Button(intent: StayOnWidget()) {
+                HomePage(date: entry.date, s: s)
+                    .contentShape(.interaction, RoundedRectangle(cornerRadius: 100 * s))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Inicio, fecha actual")
         case .calendar:
             action(entry.configuration.calendar, page: .calendar) {
                 CalendarPage(date: entry.date, s: unit)
@@ -168,11 +184,11 @@ private struct ClearView: View {
     // An unconfigured control stays in the widget; there is no old URL relay.
     @ViewBuilder private func action<V: View>(_ shortcut: SystemShortcut?, page: Page, @ViewBuilder content: () -> V) -> some View {
         if let shortcut {
-            Button(intent: RunSystemShortcutIntent(shortcut: shortcut)) { content().contentShape(Rectangle()) }
+            Button(intent: RunSystemShortcutIntent(shortcut: shortcut)) { content().contentShape(.interaction, RoundedRectangle(cornerRadius: 70)) }
                 .buttonStyle(.plain)
                 .accessibilityHint("Abrir aplicación configurada")
         } else {
-            Button(intent: SelectPage(page)) { content().contentShape(Rectangle()) }
+            Button(intent: StayOnWidget()) { content().contentShape(.interaction, RoundedRectangle(cornerRadius: 70)) }
                 .buttonStyle(.plain)
                 .accessibilityHint("Elegí la aplicación en Editar widget")
         }
@@ -330,23 +346,11 @@ private struct WeatherPage: View {
     }
 }
 
-// Toggle's optimistic state is rendered by WidgetKit before the intent finishes.
-// The selected key stays slightly recessed; a second tap cannot deselect the page.
-private struct MetalToggleStyle: ToggleStyle {
-    let asset: String
-    let width: CGFloat
-    let height: CGFloat
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    func makeBody(configuration: Configuration) -> some View {
-        OriginalImage(name: configuration.isOn ? asset + "On" : asset)
-            .frame(width: width, height: height)
-            .contentShape(Rectangle())
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: configuration.isOn)
-    }
-}
+// Momentary keys, not switches. Keep the original images and selected asset.
 private struct NavigationRail: View {
     let active: Page
     let s: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(spacing: 0) {
             key(.calendar, asset: "OriginalKeyCalendar", height: 176)
@@ -355,10 +359,20 @@ private struct NavigationRail: View {
         }
     }
     private func key(_ page: Page, asset: String, height: CGFloat) -> some View {
-        Toggle(isOn: active == page, intent: SelectPage(page)) {
-            Text(page.label)
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: (page == .calendar ? 86 : 14) * s,
+            bottomLeadingRadius: (page == .weather ? 86 : 14) * s,
+            bottomTrailingRadius: (page == .weather ? 86 : 14) * s,
+            topTrailingRadius: (page == .calendar ? 86 : 14) * s
+        )
+        return Button(intent: SelectPage(page)) {
+            OriginalImage(name: active == page ? asset + "On" : asset)
+                .frame(width: 173 * s, height: height * s)
+                .contentShape(.interaction, shape)
+                .contentShape(.hoverEffect, shape)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: active == page)
         }
-        .toggleStyle(MetalToggleStyle(asset: asset, width: 173 * s, height: height * s))
+        .buttonStyle(.plain)
         .accessibilityLabel(page.label)
         .accessibilityAddTraits(active == page ? .isSelected : [])
     }

@@ -83,10 +83,10 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$ext/Info.plist" | grep -Fx com.apple.widgetkit-extension
           mkdir -p Payload
           cp -R "$app" Payload/
-          zip -qry ClearWidget-v0.4.0.ipa Payload
-          unzip -t ClearWidget-v0.4.0.ipa
+          zip -qry ClearWidget-v0.4.1.ipa Payload
+          unzip -t ClearWidget-v0.4.1.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: ClearWidget-v0.4.0
-          path: ClearWidget-v0.4.0.ipa
+          name: ClearWidget-v0.4.1
+          path: ClearWidget-v0.4.1.ipa
           if-no-files-found: error

@@ -1,12 +1,12 @@
-# ClearWidget 0.4.0 — personal-use validation
+# ClearWidget 0.4.1 — personal-use validation
 Native iPhone medium widget, iOS 27+, SwiftUI and WidgetKit.
 The original app and widget bundle identifiers and widget kind are unchanged. No App Groups, GPS, background service, timers or runtime asset requests.
 
 ## Changes
 - Original Clear Medium (Lokki) RGBA artwork: frame, metallic keys, greeting and orange disc. The build verifies exact pixel hashes against the supplied 1480 × 708 reference files and crops keys without resampling. Only the selected key has a new subtle darkened state. This is a personal-use reconstruction; do not distribute the original artwork without permission.
 - Original panel alpha is 20%; the outer glass is supplied by iOS in its transparent appearance. No wallpaper capture.
-- Native blurReplace animation targeted at panel only (0.28 s), Reduce Motion respected in requested animation; fixed frame. Optimistic Toggle states (0.10 s), no permanent animation. Timing and visual behavior require physical verification.
-- RunSystemShortcutIntent, Apple's iOS 27 API: long-press widget → Edit Widget → choose the installed Weather and Calendar applications. No URL relay or UIApplication.open. Unconfigured areas remain in the widget. One-time user choice is mandatory.
+- Native blurReplace animation targeted at panel only (0.28 s), Reduce Motion respected in requested animation; fixed frame. Momentary plain Button states with shaped hit regions (0.10 s; no optimistic Toggle), no permanent animation. Timing and visual behavior require physical verification.
+- RunSystemShortcutIntent, Apple's iOS 27 API: long-press widget → Edit Widget → choose the installed Weather and Calendar applications. No URL relay or UIApplication.open. Unconfigured areas and the home panel use a background-only intent instead of launching ClearWidget. The outer margins retain iOS default behavior. System touch feedback and selected key timing must be verified on device. One-time user choice is mandatory.
 - Single stored page + tap marker; timeline consumes the marker before networking. Scheduled weather refresh remains separate; WidgetKit provides no guaranteed reload reason and can coalesce requests. The currently supported single widget shares local state across copies.
 - Existing ECMWF/Open-Meteo 30-minute cache, retry throttling and 6 h expiry retained. Córdoba fixed; no GPS. Custom Widgy weather icon mapping is not verified, so SF Symbols and the existing local weather glyph remain for now.
 - Weather and calendar links are now native buttons. The user must select both destinations. No opening ClearWidget as an intermediate step.
