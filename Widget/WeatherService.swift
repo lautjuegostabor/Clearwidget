@@ -10,6 +10,7 @@ struct WeatherReading: Sendable {
     let fetchedAt: Date?
     static let empty = WeatherReading(current: nil, nextHour: nil, tomorrowHigh: nil, code: nil, isDay: true, fetchedAt: nil)
     var symbol: String {
+        guard let code else { return "cloud" }
         switch code {
         case 0: return isDay ? "sun.max" : "moon.stars"
         case 1, 2: return isDay ? "cloud.sun" : "cloud.moon"
