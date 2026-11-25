@@ -40,6 +40,7 @@ struct SelectPage: AppIntent {
     init() {}
     init(_ page: Page) { self.page = page }
     func perform() async throws -> some IntentResult {
+        ForecastDisk.markNavigation()
         Store.set(page)
         return .result()
     }
@@ -48,17 +49,34 @@ struct SelectPage: AppIntent {
 private struct Entry: TimelineEntry {
     let date: Date
     let page: Page
+    let weather: WeatherReading
 }
 private struct Provider: TimelineProvider {
-    func placeholder(in context: Context) -> Entry { Entry(date: Date(), page: .home) }
+    private func entry(at now: Date, page: Page) -> Entry {
+        Entry(date: now, page: page,
+              weather: page == .weather ? ForecastDisk.cached?.reading(at: now) ?? .empty : .empty)
+    }
+    func placeholder(in context: Context) -> Entry { Entry(date: Date(), page: .home, weather: .empty) }
     func getSnapshot(in context: Context, completion: @escaping (Entry) -> Void) {
-        completion(Entry(date: Date(), page: Store.page))
+        completion(entry(at: Date(), page: Store.page))
     }
     func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> Void) {
         let now = Date()
+        // A tap reloads the timeline but must never wait for a network fetch.
+        if context.isPreview || ForecastDisk.navigationRecent(at: now) {
+            complete(at: now, completion: completion)
+            return
+        }
+        Task {
+            await WeatherService.shared.refreshIfDue(at: now)
+            complete(at: Date(), completion: completion)
+        }
+    }
+    private func complete(at now: Date, completion: @escaping (Timeline<Entry>) -> Void) {
         let calendar = Calendar.autoupdatingCurrent
-        let next = calendar.dateInterval(of: .day, for: now)?.end ?? now.addingTimeInterval(3600)
-        completion(Timeline(entries: [Entry(date: now, page: Store.page)], policy: .after(next)))
+        let midnight = calendar.dateInterval(of: .day, for: now)?.end ?? now.addingTimeInterval(3600)
+        let next = min(midnight, ForecastDisk.nextRefresh(at: now))
+        completion(Timeline(entries: [entry(at: now, page: Store.page)], policy: .after(next)))
     }
 }
 
@@ -85,7 +103,7 @@ private struct ClearView: View {
                         }
                     case .weather:
                         Link(destination: URL(string: "clearwidget://weather")!) {
-                            WeatherPage(s: s)
+                            WeatherPage(s: s, weather: entry.weather)
                         }
                     }
                 }
@@ -184,38 +202,40 @@ private struct CalendarPage: View {
 
 private struct WeatherPage: View {
     let s: CGFloat
+    let weather: WeatherReading
     var body: some View {
         HStack(spacing: 22 * s) {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Ahora").font(.system(size: 34 * s, design: .rounded)).foregroundStyle(.white.opacity(0.70))
                 Spacer(minLength: 0)
-                Image(systemName: "cloud.sun")
+                Image(systemName: weather.symbol)
                     .font(.system(size: 136 * s, weight: .ultraLight))
                     .foregroundStyle(.white.opacity(0.55))
                     .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
                 Spacer(minLength: 0)
-                Text("—").font(.system(size: 50 * s, weight: .semibold, design: .rounded))
+                Text(WeatherReading.degrees(weather.current)).font(.system(size: 50 * s, weight: .semibold, design: .rounded))
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }.padding(40 * s).frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background { tile }
             VStack(spacing: 20 * s) {
-                smallTile("Próxima hora")
-                smallTile("Mañana")
+                smallTile("Próxima hora", weather.nextHour)
+                smallTile("Mañana", weather.tomorrowHigh)
+                    .accessibilityLabel("Máxima de mañana")
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }.padding(26 * s).contentShape(Rectangle())
-        .accessibilityHint("Datos meteorológicos aún no disponibles")
+        .accessibilityHint(weather.fetchedAt.map { "Pronóstico ECMWF actualizado \($0.formatted(date: .omitted, time: .shortened))" } ?? "Datos meteorológicos no disponibles")
     }
     private var tile: some View {
         RoundedRectangle(cornerRadius: 45 * s)
             .fill(Color.white.opacity(0.12))
             .overlay { RoundedRectangle(cornerRadius: 45 * s).strokeBorder(Color.white.opacity(0.15), lineWidth: 1.5 * s) }
     }
-    private func smallTile(_ label: String) -> some View {
+    private func smallTile(_ label: String, _ temperature: Double?) -> some View {
         VStack(alignment: .leading, spacing: 6 * s) {
             Text(label).font(.system(size: 34 * s, design: .rounded))
                 .foregroundStyle(.white.opacity(0.70)).lineLimit(1).minimumScaleFactor(0.72)
-            Text("—").font(.system(size: 50 * s, weight: .semibold, design: .rounded))
+            Text(WeatherReading.degrees(temperature)).font(.system(size: 50 * s, weight: .semibold, design: .rounded))
         }
         .padding(.horizontal, 50 * s)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
