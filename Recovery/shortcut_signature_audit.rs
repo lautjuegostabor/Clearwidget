@@ -60,3 +60,43 @@ pub fn verify_shortcut_trial(ipa:&Ipa,plan:&Plan)->Result<(),String>{
     if count!=2{return Err("Expected exactly two signed bundles".into())}
     Ok(())
 }
+
+#[cfg(test)]
+mod shortcut_trial_tests{
+    use super::*;
+    use crate::sign::codesign::tests::{identity,macho};
+    fn make_info(id:&str,exe:&str,extension:bool)->Vec<u8>{
+        let mut d=Dictionary::new();
+        for(k,v)in [("CFBundleIdentifier",id),("CFBundleExecutable",exe),("CFBundleShortVersionString","0.5.8"),("CFBundleVersion","14"),("CFBundlePackageType",if extension{"XPC!"}else{"APPL"})]{
+            d.insert(k.into(),Value::String(v.into()));
+        }
+        if extension{
+            let mut e=Dictionary::new();e.insert("NSExtensionPointIdentifier".into(),Value::String("com.apple.widgetkit-extension".into()));
+            d.insert("NSExtension".into(),Value::Dictionary(e));
+        }
+        let mut b=Vec::new();plist::to_writer_xml(&mut b,&d).unwrap();b
+    }
+    #[test]
+    fn verifies_two_real_signed_macho_blobs_and_rejects_missing_permission(){
+        let h="Payload/A.app";let w="Payload/A.app/PlugIns/W.appex";
+        let mut z=zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let mut plans=HashMap::new();
+        for(dir,id,exe,ext)in[(h,"com.a","A",false),(w,"com.a.widget","W",true)]{
+            let info=make_info(id,exe,ext);
+            for(name,data)in[("Info.plist",info),(exe,macho(0x8000))]{
+                z.start_file(format!("{dir}/{name}"),zip::write::SimpleFileOptions::default()).unwrap();
+                z.write_all(&data).unwrap();
+            }
+            let mut e=Dictionary::new();
+            e.insert("application-identifier".into(),Value::String(format!("TEAM.{id}")));
+            e.insert("keychain-access-groups".into(),Value::Array(vec![Value::String(format!("TEAM.{id}")),Value::String("TEAM.com.clearwidget.bridge".into())]));
+            plans.insert(dir.into(),Signing{new_id:id.into(),profile:b"test-profile".to_vec(),entitlements:e});
+        }
+        let mut ipa=Ipa::read(z.finish().unwrap().into_inner(),&|_,_|{}).unwrap();
+        let mut plan=Plan{identity:identity(),bundles:plans,info_edits:HashMap::new(),add_files:vec![]};
+        sign(&mut ipa,&plan,&mut|_,_|{}).unwrap();
+        verify_shortcut_trial(&ipa,&plan).unwrap();
+        plan.bundles.get_mut(w).unwrap().entitlements.remove("keychain-access-groups");
+        assert!(verify_shortcut_trial(&ipa,&plan).is_err());
+    }
+}
