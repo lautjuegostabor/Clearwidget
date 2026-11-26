@@ -15,7 +15,7 @@ struct ClearSmallView: View {
         return minute >= 360 && minute <= 1080
     }
     private var weekday: String {
-        date.formatted(.dateTime.weekday(.abbreviated).locale(Locale(identifier: "es_AR")))
+        date.formatted(.dateTime.weekday(.wide).locale(Locale(identifier: "es_AR")))
     }
     private var monthDay: String {
         let month = date.formatted(.dateTime.month(.wide).locale(Locale(identifier: "es_AR")))
