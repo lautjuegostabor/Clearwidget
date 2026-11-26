@@ -145,6 +145,7 @@ async fn install(input:BootstrapInput, bytes:Vec<u8>)->Result<serde_json::Value,
         let (ent,e)=profile_for_new(&raw,&team_id,id,&session.udid,&cert.der,now)?;
         let mut info=Dictionary::new();
         info.insert("ClearSignCertificateSHA256".into(),Value::String(fingerprint.clone()));
+        info.insert("ClearSignCertificateExpires".into(),Value::Integer(cert_end.into()));
         info_edits.insert(b.dir.clone(),info);
         plan_bundles.insert(b.dir.clone(),Signing{new_id:id.to_owned(),profile:raw.clone(),entitlements:ent});
         fresh.push((raw,e.min(cert_end)));

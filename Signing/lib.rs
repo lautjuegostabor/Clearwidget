@@ -26,6 +26,14 @@ use apple::{gsa,portal::Portal};
 use device::{session::Session,services};
 use pairing::record::PairingRecord;
 static LOCK: Mutex<()> = Mutex::new(());
+static REFRESH_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+#[no_mangle]
+pub extern "C" fn clearsign_cancel_refresh(){REFRESH_CANCEL.store(true,std::sync::atomic::Ordering::SeqCst);}
+async fn wait_for_refresh_cancel(){
+    while !REFRESH_CANCEL.load(std::sync::atomic::Ordering::SeqCst){
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
 static RENEWAL_ONLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub(crate) fn renewal_only() -> bool { RENEWAL_ONLY.load(std::sync::atomic::Ordering::SeqCst) }
 struct RenewalGuard;
@@ -52,7 +60,7 @@ fn portal_failure(stage: &str, error: apple::portal::PortalError) -> String {
 #[derive(Deserialize)]
 struct Input { bundles: Vec<BundleInput>, previousExpiry: u64 }
 #[derive(Deserialize)]
-struct BundleInput { bundleID: String, profile: String }
+struct BundleInput { bundleID: String, profile: String, signingCertificateSHA256: Option<String> }
 
 fn profile(data: &[u8]) -> Result<Dictionary,&'static str> {
     if data.len() > 1_000_000 { return Err("profile_invalid"); }
@@ -80,19 +88,30 @@ fn device_allowed(d: &Dictionary,udid: &str) -> bool {
     !udid.is_empty() && d.get("ProvisionedDevices").and_then(Value::as_array).into_iter().flatten()
         .filter_map(Value::as_string).any(|x|norm(x)==norm(udid))
 }
-fn verify(old: &Dictionary,new: &Dictionary,udid: &str,previous: u64,now: u64) -> Result<u64,&'static str> {
+fn verify(old: &Dictionary,new: &Dictionary,udid: &str,previous: u64,now: u64,fingerprint: Option<&str>) -> Result<u64,&'static str> {
     if team(old).is_none() || team(old)!=team(new) || app_id(old).is_none() || app_id(old)!=app_id(new) {
         return Err("profile_identity_mismatch");
     }
     let old_certs=certs(old);let new_certs=certs(new);
-    // Conservative: retain ALL certificates from the installed profile, not merely
-    // an arbitrary common certificate. Never create or revoke one.
-    if old_certs.is_empty() || !old_certs.iter().all(|c|new_certs.contains(c)) {return Err("certificate_changed");}
+    let cert_end=if let Some(fingerprint)=fingerprint {
+        use sha2::{Digest,Sha256};
+        if fingerprint.len()!=64||!fingerprint.bytes().all(|c|c.is_ascii_hexdigit()){return Err("certificate_changed");}
+        let matches:Vec<_>=old_certs.iter().filter(|c|hex::encode(Sha256::digest(c))==fingerprint).collect();
+        if matches.len()!=1||!new_certs.contains(matches[0]){return Err("certificate_changed");}
+        let cert=der::cert_info(matches[0]).map_err(|_|"certificate_changed")?;
+        if cert.not_before>now||cert.not_after<=now+3600{return Err("signing_certificate_expires");}
+        cert.not_after
+    }else{
+        // Imported/legacy installation has no trustworthy leaf stamp.
+        if old_certs.is_empty() || !old_certs.iter().all(|c|new_certs.contains(c)) {return Err("certificate_changed");}
+        u64::MAX
+    };
     if old.get("Entitlements")!=new.get("Entitlements") {return Err("entitlements_changed");}
     if !device_allowed(old,udid) || !device_allowed(new,udid) {return Err("device_mismatch");}
-    let e=expiry(new).ok_or("profile_invalid")?;
-    let old_e=expiry(old).ok_or("profile_invalid")?;
-    if e <= now+3600 || e <= old_e.max(previous)+60 {return Err("profile_not_extended");}
+    let e=expiry(new).ok_or("profile_invalid")?.min(cert_end);
+    let old_e=expiry(old).ok_or("profile_invalid")?.min(cert_end);
+    if cert_end<=old_e.max(previous).saturating_add(60){return Err("signing_certificate_expires");}
+    if e <= now+3600 || e <= old_e.max(previous).saturating_add(60) {return Err("profile_not_extended");}
     Ok(e)
 }
 // Compare complete CMS bytes received back from the device. Never persist other profiles.
@@ -164,7 +183,7 @@ async fn renew(input: Input) -> Result<u64,String> {
         let app=ids.iter().find(|a|a.identifier==b.bundleID).ok_or("app_id_missing")?;
         let raw=portal.profile(&team_id,app).await.map_err(|e|portal_failure("downloadTeamProvisioningProfile",e))?;
         let candidate=profile(&raw)?;
-        let e=verify(p,&candidate,&session.udid,input.previousExpiry,now)?;
+        let e=verify(p,&candidate,&session.udid,input.previousExpiry,now,b.signingCertificateSHA256.as_deref())?;
         fresh.push((raw,e));
     }
     let mut install_failed=false;
@@ -186,12 +205,16 @@ fn execute(dir:&str,bytes:&[u8])->Result<u64,String>{
     if bytes.len()>3_000_000 || !Path::new(dir).is_absolute(){return Err("input_invalid".into());}
     let _guard=LOCK.try_lock().map_err(|_|"engine_busy")?;
     let _renewal=RenewalGuard::start();
+    REFRESH_CANCEL.store(false,std::sync::atomic::Ordering::SeqCst);
     std::env::set_var("BARISTORE_HOME",dir);
     let route=std::fs::read_to_string(state::path("anisette-server")).map_err(|_|"session_unavailable")?;
     if !route.lines().next().map(|x|x.starts_with("https://")).unwrap_or(false){return Err("session_route_invalid".into());}
     let input:Input=serde_json::from_slice(bytes).map_err(|_|"input_invalid")?;
     let rt=tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().map_err(|_|"engine_unavailable")?;
-    let r=rt.block_on(async {tokio::time::timeout(Duration::from_secs(120),renew(input)).await.map_err(|_|"timeout")?});
+    let r=rt.block_on(async {tokio::select! {
+        result=tokio::time::timeout(Duration::from_secs(120),renew(input))=>result.map_err(|_|"timeout")?,
+        _=wait_for_refresh_cancel()=>Err("refresh_cancelled".into()),
+    }});
     rt.shutdown_timeout(Duration::from_secs(2));
     r
 }

@@ -15,6 +15,7 @@ def apply(s):
     s=s[:start]+'''        let submitted = self.call("submitDevelopmentCSR", Some(team), body).await?;
 '''+s[end:]
     s=replace(s,'            if matches_id || matches_key {','            if matches_key {')
+    s=replace(s,'                    if spki_matches(info.spki, &modulus) {','                    if spki_matches(info.spki, &modulus) && info.not_after > std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()+3600 {')
     # Independent fail-closed backstop: no revocation from this native library.
     s=replace(s,'        let mut body = Dictionary::new();\n        body.insert("serialNumber".into(), Value::String(serial.into()));\n        self.call("revokeDevelopmentCert", Some(team), body).await.map(|_| ())',
               '        let _ = (team, serial);\n        Err(err("certificate_revocation_disabled"))')
