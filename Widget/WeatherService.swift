@@ -1,6 +1,6 @@
 import Foundation
 
-// Personal-use city forecast; no precise location or location permission.
+// Common forecast format for Apple Shortcuts and Open-Meteo.
 struct WeatherReading: Sendable {
     let current: Double?
     let nextHour: Double?
@@ -43,10 +43,14 @@ struct ForecastPayload: Codable, Sendable {
     }
     let current: Current?
     let hourly: Hourly
+    var timezone: String? = nil
 }
 struct ForecastCache: Codable, Sendable {
     let fetchedAt: Date
     let payload: ForecastPayload
+    var source: String? = nil
+    var location: WeatherLocation? = nil
+    var tomorrowMaximum: Double? = nil
 
     func reading(at now: Date) -> WeatherReading {
         let age = now.timeIntervalSince(fetchedAt)
@@ -67,9 +71,10 @@ struct ForecastCache: Codable, Sendable {
         } else if let lo = lower, seconds - Double(h.time[lo]) < 3600 {
             interpolated = h.temperature_2m[lo]
         }
-        let current = payload.current.flatMap { abs(seconds - Double($0.time)) <= 1800 ? $0 : nil }
+        let currentWindow: Double = source == "apple" ? 75 * 60 : 1800
+        let current = payload.current.flatMap { abs(seconds - Double($0.time)) <= currentWindow ? $0 : nil }
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "America/Argentina/Cordoba") ?? .current
+        calendar.timeZone = payload.timezone.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
         let day = calendar.startOfDay(for: now)
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: day) ?? day
         let afterTomorrow = calendar.date(byAdding: .day, value: 2, to: day) ?? day
@@ -80,7 +85,7 @@ struct ForecastCache: Codable, Sendable {
         return WeatherReading(
             current: current?.temperature_2m ?? interpolated,
             nextHour: upper.flatMap { h.time[$0] <= Int(seconds) + 3600 ? h.temperature_2m[$0] : nil },
-            tomorrowHigh: tomorrowValues.count >= 20 ? tomorrowValues.max() : nil,
+            tomorrowHigh: (calendar.isDate(fetchedAt, inSameDayAs: now) ? tomorrowMaximum : nil) ?? (tomorrowValues.count >= 20 ? tomorrowValues.max() : nil),
             code: current?.weather_code ?? lower.flatMap { h.weather_code[$0] },
             isDay: (current?.is_day ?? lower.flatMap { h.is_day[$0] } ?? 1) == 1,
             fetchedAt: fetchedAt
@@ -88,22 +93,74 @@ struct ForecastCache: Codable, Sendable {
     }
 }
 
+struct WeatherLocation: Codable, Sendable {
+    let latitude: Double
+    let longitude: Double
+    let observedAt: Date
+    var valid: Bool {
+        latitude.isFinite && longitude.isFinite && (-90...90).contains(latitude) && (-180...180).contains(longitude)
+    }
+    func near(_ other: WeatherLocation) -> Bool {
+        let r = Double.pi / 180
+        let dLat = (latitude - other.latitude) * r
+        let dLon = (longitude - other.longitude) * r
+        let a = pow(sin(dLat / 2), 2) + cos(latitude * r) * cos(other.latitude * r) * pow(sin(dLon / 2), 2)
+        return 6371 * 2 * asin(sqrt(min(1, max(0, a)))) <= 20
+    }
+}
+
 enum ForecastDisk {
-    static let cacheKey = "clearwidget.ecmwf.cache.v1"
-    static let attemptKey = "clearwidget.ecmwf.attempt.v1"
-    static let ttl: TimeInterval = 30 * 60
-    static let retry: TimeInterval = 15 * 60
-    static var cached: ForecastCache? {
-        guard let data = UserDefaults.standard.data(forKey: cacheKey) else { return nil }
-        return try? JSONDecoder().decode(ForecastCache.self, from: data)
+    static let cacheKey = "clearwidget.openmeteo.cache.v2"
+    static let appleKey = "clearwidget.apple.cache.v1"
+    static let locationKey = "clearwidget.forecast.location.v1"
+    static let attemptKey = "clearwidget.openmeteo.attempt.v2"
+    static let ttl: TimeInterval = 60 * 60
+    static let appleFreshness: TimeInterval = 75 * 60
+    static let retry: TimeInterval = 5 * 60
+    private static func read<T: Decodable>(_ type: T.Type, key: String) -> T? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
+    }
+    static var location: WeatherLocation? { read(WeatherLocation.self, key: locationKey) }
+    static var apple: ForecastCache? { read(ForecastCache.self, key: appleKey) }
+    static var fallback: ForecastCache? { read(ForecastCache.self, key: cacheKey) }
+    static func fresh(_ cache: ForecastCache?, at now: Date, maxAge: TimeInterval) -> Bool {
+        guard let cache, let position = cache.location, let latest = location, position.near(latest) else { return false }
+        return (0..<maxAge).contains(now.timeIntervalSince(cache.fetchedAt))
+    }
+    static func select(apple: ForecastCache?, fallback: ForecastCache?, location: WeatherLocation?, at now: Date) -> ForecastCache? {
+        guard let location, (0..<6 * 3600).contains(now.timeIntervalSince(location.observedAt)) else { return nil }
+        func valid(_ c: ForecastCache?, age: TimeInterval) -> Bool {
+            guard let c, let p = c.location, p.near(location) else { return false }
+            return (0..<age).contains(now.timeIntervalSince(c.fetchedAt))
+        }
+        if valid(apple, age: appleFreshness) { return apple }
+        if valid(fallback, age: 6 * 3600) { return fallback }
+        if valid(apple, age: 6 * 3600) { return apple }
+        return nil
+    }
+    static var cached: ForecastCache? { select(apple: apple, fallback: fallback, location: location, at: Date()) }
+    static func updateLocation(_ new: WeatherLocation) throws {
+        guard new.valid else { return }
+        if let old = location {
+            guard new.observedAt >= old.observedAt else { return }
+            if !old.near(new) {
+                UserDefaults.standard.removeObject(forKey: appleKey)
+                UserDefaults.standard.removeObject(forKey: cacheKey)
+                UserDefaults.standard.removeObject(forKey: attemptKey)
+            }
+        }
+        UserDefaults.standard.set(try JSONEncoder().encode(new), forKey: locationKey)
+    }
+    static func save(_ cache: ForecastCache, key: String) throws {
+        UserDefaults.standard.set(try JSONEncoder().encode(cache), forKey: key)
     }
     static func nextRefresh(at now: Date) -> Date {
         if let cache = cached, (0..<ttl).contains(now.timeIntervalSince(cache.fetchedAt)) {
             return max(now.addingTimeInterval(60), cache.fetchedAt.addingTimeInterval(ttl))
         }
         let last = UserDefaults.standard.double(forKey: attemptKey)
-        let earliest = Date(timeIntervalSince1970: last + retry)
-        return max(now.addingTimeInterval(retry), earliest)
+        return max(now.addingTimeInterval(5 * 60), Date(timeIntervalSince1970: last + retry))
     }
 }
 
@@ -122,19 +179,13 @@ actor WeatherService {
         return URLSession(configuration: configuration)
     }()
 
-    // Only scheduled timeline generation may fetch. Navigation uses local cache.
+    // Scheduled fallback; navigation remains cache-only. Apple ingestion is independent.
     func refreshIfDue(at now: Date) async {
         if inFlight {
             await withCheckedContinuation { waiters.append($0) }
             return
         }
-        if let cache = ForecastDisk.cached, (0..<ForecastDisk.ttl).contains(now.timeIntervalSince(cache.fetchedAt)) { return }
-        let defaults = UserDefaults.standard
-        let sinceAttempt = now.timeIntervalSince1970 - defaults.double(forKey: ForecastDisk.attemptKey)
-        guard sinceAttempt >= ForecastDisk.retry || sinceAttempt < 0 else { return }
-        guard let url = Self.endpoint else { return }
         inFlight = true
-        defaults.set(now.timeIntervalSince1970, forKey: ForecastDisk.attemptKey)
         defer {
             inFlight = false
             let pending = waiters
@@ -142,6 +193,19 @@ actor WeatherService {
             pending.forEach { $0.resume() }
         }
         do {
+            if let position = await WidgetLocation.current() {
+                try ForecastDisk.updateLocation(position)
+            }
+            guard let position = ForecastDisk.location,
+                  (0..<2 * 3600).contains(Date().timeIntervalSince(position.observedAt)) else { return }
+            let date = Date()
+            if ForecastDisk.fresh(ForecastDisk.apple, at: date, maxAge: ForecastDisk.appleFreshness) ||
+                ForecastDisk.fresh(ForecastDisk.fallback, at: date, maxAge: ForecastDisk.ttl) { return }
+            let defaults = UserDefaults.standard
+            let sinceAttempt = date.timeIntervalSince1970 - defaults.double(forKey: ForecastDisk.attemptKey)
+            guard sinceAttempt >= ForecastDisk.retry || sinceAttempt < 0 else { return }
+            guard let url = Self.endpoint(latitude: position.latitude, longitude: position.longitude) else { return }
+            defaults.set(date.timeIntervalSince1970, forKey: ForecastDisk.attemptKey)
             let (data, response) = try await session.data(from: url)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200, data.count <= 100_000 else { return }
             let decoded = try JSONDecoder().decode(ForecastPayload.self, from: data)
@@ -151,23 +215,35 @@ actor WeatherService {
                   decoded.hourly.time.count == decoded.hourly.is_day.count,
                   decoded.hourly.temperature_2m.contains(where: { $0 != nil })
             else { return }
-            let cache = ForecastCache(fetchedAt: Date(), payload: decoded)
-            defaults.set(try JSONEncoder().encode(cache), forKey: ForecastDisk.cacheKey)
+            guard let latest = ForecastDisk.location, latest.near(position) else { return }
+            let cache = ForecastCache(fetchedAt: Date(), payload: decoded, source: "openmeteo", location: position)
+            try ForecastDisk.save(cache, key: ForecastDisk.cacheKey)
         } catch {
             // Retain last good forecast. No immediate retries or fabricated temperatures.
         }
     }
-    static var endpoint: URL? {
+    func acceptApple(_ json: String, at now: Date = Date()) throws {
+        let cache = try AppleWeatherInput.parse(json, at: now)
+        guard let position = cache.location else { throw AppleWeatherError.invalid }
+        if let previous = ForecastDisk.apple, let prior = previous.location, prior.near(position),
+           (0..<ForecastDisk.retry).contains(now.timeIntervalSince(previous.fetchedAt)) {
+            return
+        }
+        try ForecastDisk.updateLocation(position)
+        try ForecastDisk.save(cache, key: ForecastDisk.appleKey)
+    }
+
+    static func endpoint(latitude: Double, longitude: Double) -> URL? {
         var components = URLComponents(string: "https://api.open-meteo.com/v1/forecast")
         components?.queryItems = [
-            .init(name: "latitude", value: "-31.4167"),
-            .init(name: "longitude", value: "-64.1833"),
+            .init(name: "latitude", value: String(latitude)),
+            .init(name: "longitude", value: String(longitude)),
             .init(name: "models", value: "ecmwf_ifs"),
             .init(name: "current", value: "temperature_2m,weather_code,is_day"),
             .init(name: "hourly", value: "temperature_2m,weather_code,is_day"),
             .init(name: "forecast_days", value: "3"),
             .init(name: "temperature_unit", value: "celsius"),
-            .init(name: "timezone", value: "America/Argentina/Cordoba"),
+            .init(name: "timezone", value: "auto"),
             .init(name: "timeformat", value: "unixtime")
         ]
         return components?.url

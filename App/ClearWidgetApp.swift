@@ -1,9 +1,11 @@
 import SwiftUI
 import WidgetKit
+import CoreLocation
 
 @main
 struct ClearWidgetApp: App {
     @State private var installedWidgets = "Sin consultar"
+    @State private var locationManager = CLLocationManager()
     var body: some Scene {
         WindowGroup {
             NavigationStack {
@@ -40,8 +42,11 @@ struct ClearWidgetApp: App {
                         Button("Actualizar widgets") { WidgetCenter.shared.reloadAllTimelines() }
                     }
                     Section("Pronóstico") {
-                        Text("Córdoba Capital · sin GPS · temperaturas en °C")
-                        Link("Datos: Open-Meteo · ECMWF IFS 9 km", destination: URL(string: "https://open-meteo.com/")!)
+                        Text("Ubicación automática · temperaturas en °C. Habilitá la ubicación de la app y sus widgets para que el respaldo funcione al viajar.")
+                        Button("Permitir ubicación") { locationManager.requestWhenInUseAuthorization() }
+                        Text("Apple Weather mediante Atajos (integración experimental). Configurá Guardar clima de Apple con el pronóstico JSON y ejecutá tu atajo manualmente o mediante una automatización cada hora.")
+                        Text("Para actualizar al tocar el widget, asigná ese atajo a Acción principal o Abrir Clima. Podés añadir Abrir app al final del atajo si lo deseás.")
+                        Link("Respaldo: Open-Meteo · ECMWF", destination: URL(string: "https://open-meteo.com/")!)
                         Link("Modelo ECMWF", destination: URL(string: "https://www.ecmwf.int/")!)
                     }
                     Section("Diseño") {

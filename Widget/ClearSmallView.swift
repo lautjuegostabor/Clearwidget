@@ -8,6 +8,12 @@ struct ClearSmallView: View {
     let forecast: GlassForecast
     let shortcut: SystemShortcut?
     private var reading: WeatherReading { forecast.current }
+    private var isDayArtwork: Bool {
+        // Original Widgy visibility envelope: 06:00 through 18:00 local time.
+        let c = Calendar.autoupdatingCurrent.dateComponents([.hour, .minute], from: date)
+        let minute = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+        return minute >= 360 && minute <= 1080
+    }
     private var weekday: String {
         date.formatted(.dateTime.weekday(.abbreviated).locale(Locale(identifier: "es_AR")))
     }
@@ -39,7 +45,7 @@ struct ClearSmallView: View {
         ZStack(alignment: .topLeading) {
             // Source artwork includes dark upper section and colored rounded lower panel.
             // Preserve full-color artwork in the system glass rendering mode.
-            Image(reading.isDay ? "ClearSmallDay" : "ClearSmallNight")
+            Image(isDayArtwork ? "ClearSmallDay" : "ClearSmallNight")
                 .resizable().widgetAccentedRenderingMode(.fullColor)
                 .frame(width: 1600 * s, height: 1600 * s)
                 .accessibilityHidden(true)

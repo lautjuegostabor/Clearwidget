@@ -39,7 +39,7 @@ jobs:
       - name: Test weather cache and forecast selection
         run: |
           set -euo pipefail
-          xcrun swiftc -swift-version 5 Widget/WeatherService.swift Widget/GlassSmallForecast.swift Tests/WeatherTests.swift -o /tmp/clearwidget-weather-tests
+          xcrun swiftc -swift-version 5 Widget/WeatherService.swift Widget/WidgetLocation.swift Widget/AppleWeatherInput.swift Widget/GlassSmallForecast.swift Tests/WeatherTests.swift -o /tmp/clearwidget-weather-tests
           /tmp/clearwidget-weather-tests
       - name: Generate exact local artwork
         run: |

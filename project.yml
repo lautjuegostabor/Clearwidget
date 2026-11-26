@@ -12,7 +12,12 @@ targets:
   ClearWidget:
     type: application
     platform: iOS
-    sources: [App]
+    sources:
+      - path: App
+      - path: Widget/WeatherService.swift
+      - path: Widget/WidgetLocation.swift
+      - path: Widget/AppleWeatherInput.swift
+      - path: Widget/AppleWeatherIntent.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.clearwidget.app
@@ -23,6 +28,7 @@ targets:
         CFBundleDisplayName: "\u2800"
         CFBundleShortVersionString: "0.5.2"
         CFBundleVersion: "8"
+        NSLocationWhenInUseUsageDescription: "ClearWidget usa tu ubicación solo para consultar el clima del lugar donde estés."
         UILaunchScreen: {}
     dependencies:
       - target: ClearWidgetExtension
@@ -44,6 +50,8 @@ targets:
         CFBundleDisplayName: "\u2800"
         CFBundleShortVersionString: "0.5.2"
         CFBundleVersion: "8"
+        NSWidgetWantsLocation: true
+        NSLocationWhenInUseUsageDescription: "Ubicación aproximada para consultar el clima local."
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
 schemes:
