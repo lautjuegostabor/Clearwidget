@@ -2,7 +2,7 @@ name: Build ClearWidget IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration, v0.5.4-integration]
+    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration, v0.5.4-integration, v0.5.5-integration]
 permissions:
   contents: read
 concurrency:
@@ -41,6 +41,11 @@ jobs:
           set -euo pipefail
           xcrun swiftc -swift-version 5 Widget/WeatherService.swift Widget/WidgetLocation.swift Widget/AppleWeatherInput.swift Widget/GlassSmallForecast.swift Widget/ActivityData.swift Tests/WeatherTests.swift -o /tmp/clearwidget-weather-tests
           /tmp/clearwidget-weather-tests
+      - name: Test interaction fast path
+        run: |
+          set -euo pipefail
+          xcrun swiftc -swift-version 5 Widget/WidgetInteraction.swift Tests/InteractionTests.swift -o /tmp/clearwidget-interaction-tests
+          /tmp/clearwidget-interaction-tests
       - name: Generate exact local artwork
         run: |
           python3 -m venv /tmp/clearwidget-assets
@@ -92,20 +97,20 @@ jobs:
           for path, bundle in zip(sys.argv[1:], ["com.clearwidget.app", "com.clearwidget.app.widget"]):
               p = plistlib.loads((pathlib.Path(path) / "Info.plist").read_bytes())
               assert p["CFBundleIdentifier"] == bundle, p
-              assert p["CFBundleShortVersionString"] == "0.5.4", p
-              assert p["CFBundleVersion"] == "10", p
+              assert p["CFBundleShortVersionString"] == "0.5.5", p
+              assert p["CFBundleVersion"] == "11", p
               assert p["CFBundleDisplayName"] == chr(0x2800), p
           print("Verified both final bundle identifiers, display names and versions")
           PY
           python3 Tools/check_shortcut_metadata.py "$app" "$ext"
           mkdir -p Payload
           cp -R "$app" Payload/
-          zip -qry ClearWidget-v0.5.4.ipa Payload
-          unzip -t ClearWidget-v0.5.4.ipa
+          zip -qry ClearWidget-v0.5.5.ipa Payload
+          unzip -t ClearWidget-v0.5.5.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: ClearWidget-v0.5.4
-          path: ClearWidget-v0.5.4.ipa
+          name: ClearWidget-v0.5.5
+          path: ClearWidget-v0.5.5.ipa
           if-no-files-found: error
 
   recovery:
@@ -136,6 +141,6 @@ jobs:
           file .clearrecovery-build/output/clearrecovery
       - uses: actions/upload-artifact@v4
         with:
-          name: ClearRecovery-v0.5.4-experimental
+          name: ClearRecovery-v0.5.5-experimental
           path: .clearrecovery-build/output/
           if-no-files-found: error

@@ -38,6 +38,7 @@ private enum Store {
     static func select(_ page: Page) {
         lock.lock(); defer { lock.unlock() }
         // A single write carries both the selected page and the reload reason.
+        WidgetInteraction.mark()
         UserDefaults.standard.set(page.rawValue + "|tap", forKey: key)
     }
     static func consumeTap() -> Bool {
@@ -154,18 +155,22 @@ private struct Provider: AppIntentTimelineProvider {
     }
     func timeline(for configuration: ClearConfiguration, in context: Context) async -> Timeline<Entry> {
         let now = Date()
-        if !context.isPreview { ShortcutBridge.consumeInWidget(at: now) }
-        let tap = !context.isPreview && (context.family == .systemMedium ? Store.consumeTap() : (configuration.design == .animated && Small21Navigation.consumeTap()))
+        let tap = !context.isPreview && WidgetInteraction.recent(at: now)
         if !context.isPreview && !tap {
+            ShortcutBridge.consumeInWidget(at: now)
             await WeatherService.shared.refreshIfDue(at: now)
         }
         // Read the latest state after any scheduled network request, never restore an old page.
         let date = Date()
         let midnight = Calendar.autoupdatingCurrent.dateInterval(of: .day, for: date)?.end ?? date.addingTimeInterval(3600)
-        let refresh = tap && ForecastDisk.cached == nil ? date.addingTimeInterval(60) : ForecastDisk.nextRefresh(at: date)
+        let refresh = tap ? min(ForecastDisk.nextRefresh(at: date), date.addingTimeInterval(60)) : ForecastDisk.nextRefresh(at: date)
         let nextHour = Date(timeIntervalSince1970: (floor(date.timeIntervalSince1970 / 3600) + 1) * 3600)
         let next = context.family == .systemSmall ? min(refresh, nextHour) : min(midnight, refresh)
-        let battery = context.family == .systemSmall && configuration.design == .animated && !context.isPreview ? await BatteryReader.level() : nil
+        var battery: Int?
+        if context.family == .systemSmall && configuration.design == .animated && !context.isPreview {
+            if tap { battery = BatteryReader.cached(at: date) }
+            else { battery = await BatteryReader.level() }
+        }
         return Timeline(entries: [entry(at: date, configuration: configuration, family: context.family, battery: battery)], policy: .after(next))
     }
 }
@@ -420,7 +425,7 @@ private struct NavigationRail: View {
             topTrailingRadius: (page == .calendar ? 86 : 14) * s
         )
         return Button(intent: SelectPage(page)) {
-            OriginalImage(name: active == page && page != .home ? asset + "On" : asset)
+            OriginalImage(name: active == page ? asset + "On" : asset)
                 .frame(width: 173 * s, height: height * s)
                 .contentShape(.interaction, shape)
                 .contentShape(.hoverEffect, shape)

@@ -46,7 +46,24 @@ for name, box in boxes:
     write(name,key)
     # Shade only the metal face, not the rectangular crop, indicator, rim or background.
     if name == "OriginalKeyHome":
-        pressed = key.copy()
+        from PIL import ImageDraw, ImageChops
+        w,h = key.size
+        scale = 4
+        mask_hi = Image.new("L",(w*scale,h*scale))
+        ImageDraw.Draw(mask_hi).rounded_rectangle((3*scale,3*scale,(w-4)*scale,(h-4)*scale),radius=13*scale,fill=255)
+        mask = mask_hi.resize((w,h),Image.Resampling.LANCZOS)
+        rgb = key.convert("RGB")
+        indicator = Image.new("L",(w,h))
+        indicator.putdata([int(255 * max(0,min(1,(36-(max(p)-min(p)))/28))) for p in rgb.getdata()])
+        mask = ImageChops.multiply(mask,indicator)
+        darker = ImageEnhance.Brightness(rgb).enhance(0.96)
+        pressed = Image.composite(darker,rgb,mask).convert("RGBA")
+        pressed.putalpha(key.getchannel("A"))
+        assert pressed.getchannel("A").tobytes() == key.getchannel("A").tobytes()
+        assert pressed.getpixel((0,0)) == key.getpixel((0,0))
+        assert pressed.tobytes() != key.tobytes()
+        assert all(0 <= p[i]-q[i] <= 11 for p,q in zip(key.getdata(),pressed.getdata()) for i in range(3))
+        print("Central active key: 4% maximum RGB shading, original alpha and corner preserved")
     else:
         from PIL import ImageDraw
         w,h = key.size
@@ -169,3 +186,25 @@ for name, remote in [
     assert im.width == im.height and 80 <= im.width <= 2000, (name,im.size)
     print(name, im.size, hashlib.sha256(im.tobytes()).hexdigest())
     write(name, im)
+    if name == "Small21Navigator":
+        # Integral source-pixel bounds; widget hit target is the matching circular area.
+        w,h = im.size
+        box = (round(w*1070/1600),round(h*1070/1600),round(w*1490/1600),round(h*1490/1600))
+        button = im.crop(box)
+        remainder = im.copy()
+        remainder.paste((0,0,0,0),box)
+        reconstructed = remainder.copy()
+        reconstructed.paste(button,box[:2])
+        assert reconstructed.tobytes() == im.tobytes()
+        write("Small21NavigatorButton",button)
+        write("Small21NavigatorRemainder",remainder)
+        # Exact normalized coordinates for the actual source pixel boundaries.
+        Path("Widget/Small21NavigatorGeometry.swift").write_text(
+            "import CoreGraphics\n"
+            "enum Small21NavigatorGeometry {\n"
+            f"    static let width: CGFloat = {(box[2]-box[0])*1600/w:.12f}\n"
+            f"    static let height: CGFloat = {(box[3]-box[1])*1600/h:.12f}\n"
+            f"    static let centerX: CGFloat = {(box[0]+box[2])*800/w:.12f}\n"
+            f"    static let centerY: CGFloat = {(box[1]+box[3])*800/h:.12f}\n"
+            "}\n")
+        print("Small21 navigator: source RGBA reconstructs exactly from both regions")

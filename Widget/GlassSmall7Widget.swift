@@ -6,7 +6,7 @@ struct StayOnGlassSmall: AppIntent {
     static var title: LocalizedStringResource = "Permanecer en Glass Small 7"
     static var openAppWhenRun = false
     static var allowedExecutionTargets: IntentExecutionTargets { .widgetKitExtension }
-    func perform() async throws -> some IntentResult { .result() }
+    func perform() async throws -> some IntentResult { WidgetInteraction.mark(); return .result() }
 }
 
 struct GlassSmallView: View {

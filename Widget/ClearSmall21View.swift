@@ -22,6 +22,7 @@ enum Small21Navigation {
     static var page: Small21Page { Small21Page(rawValue: UserDefaults.standard.integer(forKey: key)) ?? .calendar }
     static func advance() {
         lock.lock(); defer { lock.unlock() }
+        WidgetInteraction.mark()
         UserDefaults.standard.set(page.next.rawValue, forKey: key)
         UserDefaults.standard.set(true, forKey: tapKey)
     }
@@ -40,6 +41,15 @@ struct AdvanceSmall21: AppIntent {
     func perform() async throws -> some IntentResult { Small21Navigation.advance(); return .result() }
 }
 enum BatteryReader {
+    private static let key = "clearwidget.battery.cache.v2"
+    private struct Reading: Codable { let value: Int; let at: Date }
+    static func cached(at now: Date) -> Int? {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let reading = try? JSONDecoder().decode(Reading.self, from: data),
+              (0...3600).contains(now.timeIntervalSince(reading.at)),
+              (0...100).contains(reading.value) else { return nil }
+        return reading.value
+    }
     @MainActor static func level() -> Int? {
         let device = UIDevice.current
         let previous = device.isBatteryMonitoringEnabled
@@ -47,7 +57,11 @@ enum BatteryReader {
         defer { device.isBatteryMonitoringEnabled = previous }
         let value = device.batteryLevel
         guard value.isFinite, (0...1).contains(value) else { return nil }
-        return Int((value * 100).rounded())
+        let result = Int((value * 100).rounded())
+        if let data = try? JSONEncoder().encode(Reading(value: result, at: Date())) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+        return result
     }
 }
 enum ActivityProvider: String, AppEnum {
@@ -108,22 +122,52 @@ struct ClearSmall21View: View {
         GeometryReader { g in
             let s = min(g.size.width, g.size.height) / 1600
             ZStack(alignment: .topLeading) {
-                ZStack { information(s).id(page).transition(.blurReplace) }
+                ZStack { informationAction(s).id(page).transition(.blurReplace) }
                     .frame(width: 1600*s, height: 1600*s)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.28), value: page)
-                Image("Small21Navigator").resizable().widgetAccentedRenderingMode(.fullColor)
+                // Complementary assets are split at build time, not on each tap.
+                Image("Small21NavigatorRemainder").resizable().widgetAccentedRenderingMode(.fullColor)
                     .frame(width: 1600*s,height: 1600*s)
                     .allowsHitTesting(false).accessibilityHidden(true)
                 Button(intent: AdvanceSmall21()) {
-                    Color.clear.frame(width: 420*s,height: 420*s).contentShape(.interaction, Circle())
+                    Image("Small21NavigatorButton").resizable().widgetAccentedRenderingMode(.fullColor)
+                        .frame(width: Small21NavigatorGeometry.width*s,height: Small21NavigatorGeometry.height*s)
+                        .contentShape(.interaction, Circle())
                 }.buttonStyle(.plain)
-                    .position(x: 1280*s,y: 1280*s)
+                    .position(x: Small21NavigatorGeometry.centerX*s,y: Small21NavigatorGeometry.centerY*s)
                     .accessibilityLabel("Siguiente pantalla")
             }.frame(width: 1600*s,height: 1600*s)
                 .frame(maxWidth: .infinity,maxHeight: .infinity)
         }
         .foregroundStyle(.white)
         .containerBackground(for: .widget) { Color.clear }
+    }
+    // Render real artwork as the label, with non-overlapping action areas.
+    private func informationAction(_ s: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            Group {
+                if let shortcut {
+                    Button(intent: RunSystemShortcutIntent(shortcut: shortcut)) {
+                        upperInformation(s)
+                    }.accessibilityLabel("Abrir acción de \(subtitle)")
+                } else {
+                    Button(intent: StayOnGlassSmall()) {
+                        upperInformation(s)
+                    }.accessibilityLabel("Sin acción configurada")
+                }
+            }.buttonStyle(.plain)
+                .frame(width: 1600*s,height: 1020*s)
+                .position(x: 800*s,y: 510*s)
+            information(s).frame(width: 1600*s,height: 1600*s)
+                .frame(width: 1600*s,height: 580*s,alignment: .bottom).clipped()
+                .position(x: 800*s,y: 1310*s)
+                .allowsHitTesting(false)
+        }.frame(width: 1600*s,height: 1600*s)
+    }
+    private func upperInformation(_ s: CGFloat) -> some View {
+        information(s).frame(width: 1600*s,height: 1600*s)
+            .frame(width: 1600*s,height: 1020*s,alignment: .top).clipped()
+            .contentShape(.interaction, Rectangle())
     }
     @ViewBuilder private func information(_ s: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
@@ -135,17 +179,7 @@ struct ClearSmall21View: View {
                 text(value,size: 310,weight: .bold,opacity: 1,width: 1200,height: 382,x: 220,y: 520,s: s)
                 text(foot,size: 125,weight: .medium,opacity: 0.70,width: 710,height: 168,x: page == .activity ? 240 : 440,y: 1190,s: s)
             }.frame(width: 1600*s,height: 1600*s).allowsHitTesting(false)
-            if let shortcut {
-                Button(intent: RunSystemShortcutIntent(shortcut: shortcut)) {
-                    Color.clear.frame(width: 1560*s,height: 1000*s).contentShape(Rectangle())
-                }.buttonStyle(.plain).position(x: 800*s,y: 510*s)
-                    .accessibilityLabel("Abrir acción de \(subtitle)")
-            } else {
-                Button(intent: StayOnGlassSmall()) {
-                    Color.clear.frame(width: 1560*s,height: 1000*s).contentShape(Rectangle())
-                }.buttonStyle(.plain).position(x: 800*s,y: 510*s)
-                    .accessibilityLabel("Sin acción configurada")
-            }
+
         }
     }
     private func text(_ value: String,size: CGFloat,weight: Font.Weight,opacity: Double,
