@@ -138,6 +138,7 @@ private struct BootstrapRequest:Encodable {
     let currentTeam:String
     let version:String
     let build:String
+    let update:SignRequest?
 }
 private struct SignReceipt:Codable {
     let installation:String
@@ -229,7 +230,7 @@ private struct SignReceipt:Codable {
         status="Sesión importada. Probá renovar ahora; todavía no se confirmó la firma."
         update();schedule();Task{await notifications()}
     }
-    func installForOtherTeam(_ ipa:Data) async {
+    func installForOtherTeam(_ ipa:Data, updateExisting:Bool=false) async {
         guard !running,!setupActive,let data=ClearSignVault.load() else{return}
         guard ipa.count>0,ipa.count<=16*1024*1024 else{status="IPA demasiado grande.";return}
         let profiles=EmbeddedProfile.installed()
@@ -237,10 +238,12 @@ private struct SignReceipt:Codable {
               let version=Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String,
               let build=Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String else{status="No se pudo identificar la instalación actual.";return}
         running=true
-        status="Preparando firma de la copia con la cuenta de ClearSign…"
+        status=updateExisting ? "Preparando actualización con la sesión existente…" : "Preparando firma de la copia con la cuenta de ClearSign…"
         defer{running=false;schedule();Task{await notifications()}}
         do {
-            let request=try JSONEncoder().encode(BootstrapRequest(currentTeam:profiles[0].team,version:version,build:build))
+            let previous=UInt64(max(0,(currentExpiry(profiles) ?? Date()).timeIntervalSince1970))
+            let update=updateExisting ? SignRequest(bundles:profiles.map{.init(bundleID:$0.bundleID,profile:$0.bytes.base64EncodedString(),signingCertificateSHA256:$0.signingCertificateSHA256)},previousExpiry:previous) : nil
+            let request=try JSONEncoder().encode(BootstrapRequest(currentTeam:profiles[0].team,version:version,build:build,update:update))
             let response=try await Task.detached(priority:.userInitiated){
                 let key=try ClearSignVault.bootstrapKey()
                 return try Self.runNative(data:data,request:request,ipa:ipa,signingKey:key)
@@ -250,6 +253,10 @@ private struct SignReceipt:Codable {
                 return
             }
             try ClearSignVault.save(response.files)
+            if updateExisting{
+                status="Actualización detectada en el dispositivo. Abrí la versión nueva y comprobá la sesión."
+                return
+            }
             status=response.result.profilesVerified==true
                 ? "Copia nueva instalada y perfiles encontrados. Exportá ahora un respaldo cifrado actualizado, abrí la copia nueva e importalo; después activá Renovación preventiva."
                 : "Copia nueva encontrada, perfiles no confirmados. Exportá el respaldo actualizado e importalo en la copia nueva; no repitas la instalación."
@@ -383,6 +390,8 @@ private struct SignReceipt:Codable {
         case "profile_readback_unavailable","profile_readback_refused","profile_readback_invalid":return "no se pudo comprobar la lista de perfiles del dispositivo."
         case "device_install_uncertain","device_install_unconfirmed","device_install_failed":return "instalación incierta; no se registró un nuevo vencimiento."
         case "portal:team_not_authorized":return "la cuenta de ClearSign no pertenece al equipo que firmó esta copia. Usá la instalación con otra cuenta."
+        case "update_newer_build_required":return "el IPA debe tener un build superior al instalado."
+        case "update_installed_app_missing":return "no se encontró la instalación original; no se reemplazó ninguna app."
         case "bootstrap_same_team_use_renew":return "esta cuenta ya pertenece al equipo de la instalación. Usá Renovar ahora."
         case "bootstrap_select_single_team":return "la cuenta no tiene un único equipo seleccionable. No se solicitó certificado."
         case "bootstrap_already_installed":return "ya existe una copia con esta cuenta. Abrila; no se reemplazó."
@@ -426,15 +435,18 @@ struct ClearBootstrapPanel:View {
     @State private var backup:Data?
     @State private var secret=""
     @State private var confirmation=false
+    @State private var updating=false
     @State private var message=""
     var body:some View {
         Group {
-            Text("Instalación con otra cuenta").font(.headline)
-            Text("Conservá primero el respaldo cifrado de sesión y su clave por separado. Seleccioná el IPA original de esta misma versión. ClearSign puede registrar este iPhone, crear hasta dos App IDs y solicitar un certificado nuevo. Nunca revoca certificados ni elimina la copia actual.").font(.caption)
+            Text("Instalación y actualización").font(.headline)
+            Text("Guardá primero un respaldo cifrado. Para actualizar, seleccioná un IPA original de build superior; se conservan los identificadores y se reutiliza la sesión. Si falta la clave correspondiente, Apple puede tener que emitir otro certificado. Nunca se revocan certificados. Para instalar con otra cuenta, usá el IPA de la misma versión.").font(.caption)
             Button("Seleccionar IPA original"){pickKind = .ipa;picking=true}
                 .disabled(!signing.configured||signing.running||signing.setupActive)
             if ipa != nil {
-                Button("Firmar e instalar copia nueva"){confirmation=true}
+                Button("Actualizar esta instalación"){updating=true;confirmation=true}
+                    .disabled(signing.running||signing.setupActive)
+                Button("Firmar e instalar copia nueva"){updating=false;confirmation=true}
                     .disabled(signing.running||signing.setupActive)
                 Button("Descartar IPA"){ipa=nil}
             }
@@ -475,12 +487,12 @@ struct ClearBootstrapPanel:View {
                     do{
                         guard try await LAContext().evaluatePolicy(.deviceOwnerAuthentication,localizedReason:"Autorizar certificado e instalación local de ClearWidget") else{return}
                         ipa=nil
-                        await signing.installForOtherTeam(data)
+                        await signing.installForOtherTeam(data,updateExisting:updating)
                     }catch{message="No se autorizó la instalación."}
                 }
             }
             Button("Cancelar",role:.cancel){}
-        }message:{Text("Confirmá que guardaste el respaldo cifrado. Apple puede consumir cupos de certificado y App IDs. La copia actual no se elimina.")}
+        }message:{Text(updating ? "Confirmá el respaldo cifrado. Se reemplazará esta versión manteniendo los identificadores. iOS puede cerrar la app durante la instalación. Si falta una clave válida, Apple puede consumir un cupo de certificado." : "Confirmá que guardaste el respaldo cifrado. Apple puede consumir cupos de certificado y App IDs. La copia actual no se elimina.")}
     }
     private static func read(_ url:URL,limit:Int)throws->Data {
         let scoped=url.startAccessingSecurityScopedResource()

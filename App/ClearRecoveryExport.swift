@@ -69,7 +69,7 @@ struct ClearRecoveryExportPanel: View {
             Button("Ocultar clave y descartar copia temporal") { secret = ""; document = nil }
         }
         if !status.isEmpty { Text(status).font(.footnote) }
-        Text("ClearRecovery solamente podrá intentar renovar perfiles que coincidan con la instalación original. No arregla certificados revocados, credenciales vencidas ni una firma binaria dañada.").font(.caption)
+        Text("El modo de renovación de ClearRecovery no firma binarios. El modo update del nuevo auxiliar permite actualizar la misma instalación usando este respaldo y un IPA original superior, con autorización explícita y sin revocar certificados.").font(.caption)
             .fileExporter(isPresented: $exporting, document: document, contentType: .data, defaultFilename: "ClearWidget-recovery.clearrecovery") { result in
                 switch result { case .success: status = "Archivo cifrado exportado; todavía no se probó la recuperación externa."
                 case .failure: secret = ""; document = nil; status = "No se exportó el respaldo." }

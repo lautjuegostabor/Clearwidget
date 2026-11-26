@@ -1,6 +1,7 @@
 //! External profile-only recovery for the owner's ClearWidget installation.
 //! Intended for Open Minis Linux guest. Never accepts secrets as command-line arguments.
 use aes_gcm::{Aes256Gcm,KeyInit,aead::{Aead,Payload},Nonce};
+#[cfg(feature="clear-bootstrap")] use rsa::pkcs8::EncodePrivateKey;
 use base64::{engine::general_purpose::STANDARD,Engine};
 use serde::{Deserialize,Serialize};
 use std::{collections::BTreeMap,fs,io::{self,BufRead,Write},path::{Path,PathBuf},os::unix::fs::{OpenOptionsExt,DirBuilderExt,PermissionsExt}};
@@ -75,9 +76,47 @@ fn decrypt(path:&Path,key:&[u8])->Result<Capsule,String>{
     let plain=cipher.decrypt(Nonce::from_slice(&data[..12]),Payload{msg:&data[12..],aad:HEADER}).map_err(|_|"Key incorrect or capsule modified")?;
     serde_json::from_slice(&plain).map_err(|_|"Invalid authenticated capsule".into())
 }
+#[cfg(feature="clear-bootstrap")]
+fn run_update(capsule:&Path,ipa:&Path)->Result<(),String>{
+    let key=read_key()?;let c=decrypt(capsule,&key)?;let request=validate(&c)?;
+    let team=clearsign::upgrade_team(&request)?;
+    let meta=fs::symlink_metadata(ipa).map_err(|_|"Cannot read IPA")?;
+    if !meta.is_file()||meta.file_type().is_symlink()||meta.len()>16*1024*1024{return Err("Invalid IPA file".into());}
+    eprintln!("Esta operación reemplaza ClearWidget con el mismo equipo e identificadores. Puede solicitar un certificado si no hay una clave local válida; nunca revoca uno. No inicia sesión con contraseña. Escribí ACTUALIZAR para autorizar.");
+    let mut answer=String::new();io::stdin().lock().read_line(&mut answer).map_err(|_|"Cannot read confirmation")?;
+    if answer.trim()!="ACTUALIZAR"{return Err("Cancelled".into());}
+    let temp=stage(&c)?;
+    let root=temp.0.parent().ok_or("Missing private root")?;
+    let key_path=root.join(format!("update-key-{team}.der"));
+    let signing_key=match fs::symlink_metadata(&key_path){
+        Ok(m)=>{
+            if !m.is_file()||m.file_type().is_symlink()||m.permissions().mode()&0o077!=0||!(512..=4096).contains(&m.len()){return Err("Unsafe local signing key".into());}
+            fs::read(&key_path).map_err(|_|"Cannot read local key")?
+        },
+        Err(e) if e.kind()==io::ErrorKind::NotFound=>{
+            let key=rsa::RsaPrivateKey::new(&mut rand::rngs::OsRng,2048).map_err(|_|"Cannot generate local key")?;
+            let der=key.to_pkcs8_der().map_err(|_|"Cannot encode local key")?.as_bytes().to_vec();
+            let mut f=fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&key_path).map_err(|_|"Cannot preserve local signing key")?;
+            f.write_all(&der).map_err(|_|"Cannot write local key")?;f.sync_all().map_err(|_|"Cannot save local key")?;
+            der
+        },
+        Err(_)=>return Err("Cannot inspect local key".into()),
+    };
+    let bytes=fs::read(ipa).map_err(|_|"Cannot read IPA")?;
+    for (name,data) in [("signing-key.der",signing_key),("bootstrap.ipa",bytes)]{
+        let mut f=fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(temp.0.join(name)).map_err(|_|"Cannot stage update")?;
+        f.write_all(&data).map_err(|_|"Cannot stage update")?;
+    }
+    let result=clearsign::upgrade_existing(temp.0.to_str().ok_or("Invalid path")?,&request)?;
+    println!("Update result: {result}");
+    println!("Abrí ClearWidget y verificá la versión. Si perdió la sesión, importá el respaldo cifrado. La clave de firma nueva queda solo en el directorio privado de Open Minis.");
+    Ok(())
+}
 fn run()->Result<(),String>{
     let args:Vec<_>=std::env::args_os().skip(1).collect();
-    if args.len()!=1{return Err("Usage: clearrecovery <local-encrypted-capsule>".into());}
+    #[cfg(feature="clear-bootstrap")]
+    if args.len()==3 && args[0].to_str()==Some("update"){return run_update(Path::new(&args[1]),Path::new(&args[2]));}
+    if args.len()!=1{return Err("Usage: clearrecovery <local-encrypted-capsule> | clearrecovery update <capsule> <original-ipa>".into());}
     let key=read_key()?;let c=decrypt(Path::new(&args[0]),&key)?;let request=validate(&c)?;let temp=stage(&c)?;
     // No private key, no certificate requests/revocations, no App ID creation.
     // Does not depend on the main app running. The same conservative renew

@@ -220,6 +220,10 @@ fn execute(dir:&str,bytes:&[u8])->Result<u64,String>{
 }
 // Same conservative profile-only operation for the independent recovery binary.
 pub fn recover_profiles(dir:&str,bytes:&[u8])->Result<u64,String>{execute(dir,bytes)}
+#[cfg(feature="clear-bootstrap")]
+pub fn upgrade_team(bytes:&[u8])->Result<String,String>{bootstrap::recovery_team(bytes)}
+#[cfg(feature="clear-bootstrap")]
+pub fn upgrade_existing(dir:&str,bytes:&[u8])->Result<serde_json::Value,String>{bootstrap::update_from_recovery(dir,bytes)}
 #[no_mangle]
 pub unsafe extern "C" fn clearsign_refresh(dir:*const c_char,data:*const u8,len:usize)->*mut c_char{
     let result=std::panic::catch_unwind(||{

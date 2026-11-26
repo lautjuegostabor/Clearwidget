@@ -8,6 +8,8 @@ python3 "$ROOT/Tools/verify_vendor.py" "$ROOT/Vendor"
 rm -rf "$UP"; mkdir -p "$UP"
 cp -R "$ROOT/Vendor/BariStore/." "$UP/"
 python3 "$ROOT/Signing/patch_renewal_vendor.py" "$UP"
+python3 "$ROOT/Signing/patch_bootstrap_vendor.py" "$UP"
+cp "$ROOT/Signing/bootstrap.rs" "$UP/src/bootstrap.rs"
 cp "$ROOT/Signing/lib.rs" "$UP/src/lib.rs"
 printf '\n[features]\nclear-bootstrap = []\n' >> "$UP/Cargo.toml"
 python3 - "$UP/src/lib.rs" <<'PY'
@@ -23,14 +25,14 @@ printf '\n[lib]\nname = "clearsign"\npath = "src/lib.rs"\ncrate-type = ["rlib"]\
 cd "$UP"
 TARGET="$1"
 test "$TARGET" = aarch64-unknown-linux-musl
-cargo test --locked --lib --bin clearrecovery
+cargo test --locked --features clear-bootstrap --lib --bin clearrecovery
 python3 - <<'PY'
 from pathlib import Path
 p=Path("scripts/build.sh")
 s=p.read_text()
 old='cargo build --release --locked --target "$TARGET"'
 assert s.count(old)==1
-s=s.replace(old,old+' --bin clearrecovery')
+s=s.replace(old,old+' --features clear-bootstrap --bin clearrecovery')
 s=s.replace('release/baristore','release/clearrecovery')
 p.write_text(s)
 PY
