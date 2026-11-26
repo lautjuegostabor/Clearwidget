@@ -22,6 +22,7 @@ enum Small21Navigation {
     static var page: Small21Page { Small21Page(rawValue: UserDefaults.standard.integer(forKey: key)) ?? .calendar }
     static func advance() {
         lock.lock(); defer { lock.unlock() }
+        WidgetInteraction.mark()
         UserDefaults.standard.set(page.next.rawValue, forKey: key)
         UserDefaults.standard.set(true, forKey: tapKey)
     }
@@ -40,6 +41,16 @@ struct AdvanceSmall21: AppIntent {
     func perform() async throws -> some IntentResult { Small21Navigation.advance(); return .result() }
 }
 enum BatteryReader {
+    private static let valueKey = "clearwidget.battery.cached.v1"
+    private static let dateKey = "clearwidget.battery.cached.date.v1"
+    static func cached(at now: Date) -> Int? {
+        let d = UserDefaults.standard
+        guard let value = d.object(forKey: valueKey) as? Int,
+              let date = d.object(forKey: dateKey) as? Date,
+              (0...3600).contains(now.timeIntervalSince(date)),
+              (0...100).contains(value) else { return nil }
+        return value
+    }
     @MainActor static func level() -> Int? {
         let device = UIDevice.current
         let previous = device.isBatteryMonitoringEnabled
@@ -47,7 +58,10 @@ enum BatteryReader {
         defer { device.isBatteryMonitoringEnabled = previous }
         let value = device.batteryLevel
         guard value.isFinite, (0...1).contains(value) else { return nil }
-        return Int((value * 100).rounded())
+        let result = Int((value * 100).rounded())
+        UserDefaults.standard.set(result, forKey: valueKey)
+        UserDefaults.standard.set(Date(), forKey: dateKey)
+        return result
     }
 }
 enum ActivityProvider: String, AppEnum {
@@ -108,14 +122,29 @@ struct ClearSmall21View: View {
         GeometryReader { g in
             let s = min(g.size.width, g.size.height) / 1600
             ZStack(alignment: .topLeading) {
-                ZStack { information(s).id(page).transition(.blurReplace) }
+                ZStack { informationAction(s).id(page).transition(.blurReplace) }
                     .frame(width: 1600*s, height: 1600*s)
+                    .invalidatableContent()
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.28), value: page)
+                // Preserve the entire original PNG; draw the navigator once, inside its real button.
                 Image("Small21Navigator").resizable().widgetAccentedRenderingMode(.fullColor)
                     .frame(width: 1600*s,height: 1600*s)
+                    .mask {
+                        Rectangle().fill(.white).overlay {
+                            Circle().fill(.black)
+                                .frame(width: 420*s,height: 420*s)
+                                .position(x: 1280*s,y: 1280*s)
+                                .blendMode(.destinationOut)
+                        }.compositingGroup()
+                    }
                     .allowsHitTesting(false).accessibilityHidden(true)
                 Button(intent: AdvanceSmall21()) {
-                    Color.clear.frame(width: 420*s,height: 420*s).contentShape(.interaction, Circle())
+                    Image("Small21Navigator").resizable().widgetAccentedRenderingMode(.fullColor)
+                        .frame(width: 1600*s,height: 1600*s)
+                        .offset(x: -480*s,y: -480*s)
+                        .frame(width: 420*s,height: 420*s)
+                        .clipShape(Circle())
+                        .contentShape(.interaction, Circle())
                 }.buttonStyle(.plain)
                     .position(x: 1280*s,y: 1280*s)
                     .accessibilityLabel("Siguiente pantalla")
@@ -124,6 +153,19 @@ struct ClearSmall21View: View {
         }
         .foregroundStyle(.white)
         .containerBackground(for: .widget) { Color.clear }
+    }
+    @ViewBuilder private func informationAction(_ s: CGFloat) -> some View {
+        if let shortcut {
+            Button(intent: RunSystemShortcutIntent(shortcut: shortcut)) {
+                information(s).contentShape(.interaction, RoundedRectangle(cornerRadius: 320*s))
+            }.buttonStyle(.plain)
+                .accessibilityLabel("Abrir acción de \(subtitle)")
+        } else {
+            Button(intent: StayOnGlassSmall()) {
+                information(s).contentShape(.interaction, RoundedRectangle(cornerRadius: 320*s))
+            }.buttonStyle(.plain)
+                .accessibilityLabel("Sin acción configurada")
+        }
     }
     @ViewBuilder private func information(_ s: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
@@ -135,17 +177,7 @@ struct ClearSmall21View: View {
                 text(value,size: 310,weight: .bold,opacity: 1,width: 1200,height: 382,x: 220,y: 520,s: s)
                 text(foot,size: 125,weight: .medium,opacity: 0.70,width: 710,height: 168,x: page == .activity ? 240 : 440,y: 1190,s: s)
             }.frame(width: 1600*s,height: 1600*s).allowsHitTesting(false)
-            if let shortcut {
-                Button(intent: RunSystemShortcutIntent(shortcut: shortcut)) {
-                    Color.clear.frame(width: 1560*s,height: 1000*s).contentShape(Rectangle())
-                }.buttonStyle(.plain).position(x: 800*s,y: 510*s)
-                    .accessibilityLabel("Abrir acción de \(subtitle)")
-            } else {
-                Button(intent: StayOnGlassSmall()) {
-                    Color.clear.frame(width: 1560*s,height: 1000*s).contentShape(Rectangle())
-                }.buttonStyle(.plain).position(x: 800*s,y: 510*s)
-                    .accessibilityLabel("Sin acción configurada")
-            }
+
         }
     }
     private func text(_ value: String,size: CGFloat,weight: Font.Weight,opacity: Double,
