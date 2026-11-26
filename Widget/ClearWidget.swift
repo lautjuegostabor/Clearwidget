@@ -84,25 +84,28 @@ private struct Entry: TimelineEntry {
     let date: Date
     let page: Page
     let weather: WeatherReading
+    let glass: GlassForecast
     let configuration: ClearConfiguration
 }
 
 private struct Provider: AppIntentTimelineProvider {
-    private func entry(at now: Date, configuration: ClearConfiguration) -> Entry {
+    private func entry(at now: Date, configuration: ClearConfiguration, family: WidgetFamily) -> Entry {
         let page = Store.page
+        let cache = ForecastDisk.cached
         return Entry(date: now, page: page,
-            weather: page == .weather ? ForecastDisk.cached?.reading(at: now) ?? .empty : .empty,
+            weather: family == .systemMedium && page == .weather ? cache?.reading(at: now) ?? .empty : .empty,
+            glass: family == .systemSmall ? cache?.glassForecast(at: now) ?? .empty : .empty,
             configuration: configuration)
     }
     func placeholder(in context: Context) -> Entry {
-        Entry(date: Date(), page: .home, weather: .empty, configuration: ClearConfiguration())
+        Entry(date: Date(), page: .home, weather: .empty, glass: .empty, configuration: ClearConfiguration())
     }
     func snapshot(for configuration: ClearConfiguration, in context: Context) async -> Entry {
-        entry(at: Date(), configuration: configuration)
+        entry(at: Date(), configuration: configuration, family: context.family)
     }
     func timeline(for configuration: ClearConfiguration, in context: Context) async -> Timeline<Entry> {
         let now = Date()
-        let tap = !context.isPreview && Store.consumeTap()
+        let tap = context.family == .systemMedium && !context.isPreview && Store.consumeTap()
         if !context.isPreview && !tap {
             await WeatherService.shared.refreshIfDue(at: now)
         }
@@ -110,7 +113,9 @@ private struct Provider: AppIntentTimelineProvider {
         let date = Date()
         let midnight = Calendar.autoupdatingCurrent.dateInterval(of: .day, for: date)?.end ?? date.addingTimeInterval(3600)
         let refresh = tap && ForecastDisk.cached == nil ? date.addingTimeInterval(60) : ForecastDisk.nextRefresh(at: date)
-        return Timeline(entries: [entry(at: date, configuration: configuration)], policy: .after(min(midnight, refresh)))
+        let nextHour = Date(timeIntervalSince1970: (floor(date.timeIntervalSince1970 / 3600) + 1) * 3600)
+        let next = context.family == .systemSmall ? min(refresh, nextHour) : min(midnight, refresh)
+        return Timeline(entries: [entry(at: date, configuration: configuration, family: context.family)], policy: .after(next))
     }
 }
 
@@ -387,14 +392,28 @@ private struct NavigationRail: View {
     }
 }
 
+// A single registered kind exposes both sizes, with independent rendering.
+private struct FamilyRoot: View {
+    @Environment(\.widgetFamily) private var family
+    let entry: Entry
+    var body: some View {
+        if family == .systemSmall {
+            GlassSmallView(forecast: entry.glass, shortcut: entry.configuration.home)
+        } else {
+            ClearView(entry: entry)
+        }
+    }
+}
+
+@main
 struct ClearWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "ClearWidget", intent: ClearConfiguration.self, provider: Provider()) { entry in
-            ClearView(entry: entry)
+            FamilyRoot(entry: entry)
         }
-        .configurationDisplayName("Clear Medium")
-        .description("Inicio, clima y calendario.")
-        .supportedFamilies([.systemMedium])
+        .configurationDisplayName("ClearWidget")
+        .description("Pequeño: pronóstico de cinco horas. Mediano: inicio, clima y calendario.")
+        .supportedFamilies([.systemSmall, .systemMedium])
         .contentMarginsDisabled()
         .containerBackgroundRemovable(true)
     }

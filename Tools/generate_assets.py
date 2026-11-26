@@ -45,7 +45,7 @@ for name, box in boxes:
     key = frame.crop(box)
     write(name,key)
     # Only a restrained static luminance change. Preserve original alpha and texture.
-    pressed = ImageEnhance.Brightness(key.convert("RGB")).enhance(0.91).convert("RGBA")
+    pressed = ImageEnhance.Brightness(key.convert("RGB")).enhance(0.83).convert("RGBA")
     pressed.putalpha(key.getchannel("A"))
     write(name+"On",pressed)
     base.paste((0,0,0,0),box)

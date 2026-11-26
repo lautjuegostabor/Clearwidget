@@ -2,13 +2,6 @@ import SwiftUI
 import WidgetKit
 import AppIntents
 
-struct GlassSmallConfiguration: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource = "Acción de Glass Small 7"
-    static var description: IntentDescription = "Elegí un atajo o dejá el widget sin acción."
-    @Parameter(title: "Acción al tocar") var action: SystemShortcut?
-    init() {}
-}
-
 struct StayOnGlassSmall: AppIntent {
     static var title: LocalizedStringResource = "Permanecer en Glass Small 7"
     static var openAppWhenRun = false
@@ -16,35 +9,10 @@ struct StayOnGlassSmall: AppIntent {
     func perform() async throws -> some IntentResult { .result() }
 }
 
-private struct GlassSmallEntry: TimelineEntry {
-    let date: Date
+struct GlassSmallView: View {
     let forecast: GlassForecast
-    let configuration: GlassSmallConfiguration
-}
-
-private struct GlassSmallProvider: AppIntentTimelineProvider {
-    private func entry(_ date: Date, _ configuration: GlassSmallConfiguration) -> GlassSmallEntry {
-        GlassSmallEntry(date: date, forecast: ForecastDisk.cached?.glassForecast(at: date) ?? .empty,
-                        configuration: configuration)
-    }
-    func placeholder(in context: Context) -> GlassSmallEntry {
-        GlassSmallEntry(date: Date(), forecast: .empty, configuration: GlassSmallConfiguration())
-    }
-    func snapshot(for configuration: GlassSmallConfiguration, in context: Context) async -> GlassSmallEntry {
-        entry(Date(), configuration)
-    }
-    func timeline(for configuration: GlassSmallConfiguration, in context: Context) async -> Timeline<GlassSmallEntry> {
-        if !context.isPreview { await WeatherService.shared.refreshIfDue(at: Date()) }
-        let now = Date()
-        let refresh = ForecastDisk.nextRefresh(at: now)
-        let nextHour = Date(timeIntervalSince1970: (floor(now.timeIntervalSince1970 / 3600) + 1) * 3600)
-        return Timeline(entries: [entry(now, configuration)], policy: .after(min(refresh, nextHour)))
-    }
-}
-
-private struct GlassSmallView: View {
-    let entry: GlassSmallEntry
-    private var currentText: String { GlassCondition.description(entry.forecast.current.code) }
+    let shortcut: SystemShortcut?
+    private var currentText: String { GlassCondition.description(forecast.current.code) }
     private var wrappedText: String {
         switch currentText {
         case "Parcialmente nublado": return "Parcialmente\nNublado"
@@ -57,7 +25,7 @@ private struct GlassSmallView: View {
             let s = min(geometry.size.width, geometry.size.height) / 1600
             let shape = RoundedRectangle(cornerRadius: 320 * s)
             Group {
-                if let shortcut = entry.configuration.action {
+                if let shortcut {
                     Button(intent: RunSystemShortcutIntent(shortcut: shortcut)) {
                         artwork(s: s).contentShape(.interaction, shape)
                     }
@@ -69,7 +37,7 @@ private struct GlassSmallView: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .accessibilityHint(entry.configuration.action == nil ? "Sin acción configurada" : "Abrir atajo configurado")
+            .accessibilityHint(shortcut == nil ? "Sin acción configurada" : "Abrir atajo configurado")
         }
         .foregroundStyle(.white)
         .containerBackground(for: .widget) { Color.black.opacity(0.12) }
@@ -89,7 +57,7 @@ private struct GlassSmallView: View {
                 .multilineTextAlignment(.leading)
                 .frame(width: 900 * s, height: 338 * s, alignment: .topLeading)
                 .position(x: 626 * s, y: 551 * s)
-            Text(WeatherReading.degrees(entry.forecast.current.current))
+            Text(WeatherReading.degrees(forecast.current.current))
                 .font(.system(size: 405 * s, weight: .bold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
@@ -97,7 +65,7 @@ private struct GlassSmallView: View {
                 .frame(width: 850 * s, height: 498 * s, alignment: .leading)
                 .position(x: 601 * s, y: 1251 * s)
             ForEach(0..<5) { i in
-                let hour = i < entry.forecast.hours.count ? entry.forecast.hours[i] : nil
+                let hour = i < forecast.hours.count ? forecast.hours[i] : nil
                 let y = [274.0, 534.0, 800.0, 1064.0, 1328.0][i] * s
                 Group {
                     if let asset = hour?.asset {
@@ -125,16 +93,3 @@ private struct GlassSmallView: View {
     }
 }
 
-struct GlassSmall7Widget: Widget {
-    var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: "GlassSmall7", intent: GlassSmallConfiguration.self,
-                               provider: GlassSmallProvider()) { entry in
-            GlassSmallView(entry: entry)
-        }
-        .configurationDisplayName("Glass Small 7")
-        .description("Temperatura actual y pronóstico de las próximas cinco horas.")
-        .supportedFamilies([.systemSmall])
-        .contentMarginsDisabled()
-        .containerBackgroundRemovable(true)
-    }
-}
