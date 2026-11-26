@@ -101,8 +101,9 @@ private struct GlassSmallView: View {
                 let y = [274.0, 534.0, 800.0, 1064.0, 1328.0][i] * s
                 Group {
                     if let asset = hour?.asset {
-                        Image(asset).resizable().scaledToFit()
+                        Image(asset).resizable()
                             .widgetAccentedRenderingMode(.fullColor)
+                            .scaledToFit()
                     } else {
                         Color.clear
                     }
