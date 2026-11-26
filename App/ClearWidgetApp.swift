@@ -7,8 +7,8 @@ struct ClearWidgetApp: App {
             NavigationStack {
                 Form {
                     Section("ClearWidget") {
-                        Text("Agregá el widget mediano. En la pantalla de inicio, mantené pulsado ClearWidget y elegí Editar widget.")
-                        Text("En Abrir Clima seleccioná la app Clima de Apple. En Abrir Calendario seleccioná Calendario. iOS abre la aplicación seleccionada directamente.")
+                        Text("Agregá Clear Medium o Glass Small 7 desde la galería de widgets. Mantené pulsado el widget y elegí Editar widget.")
+                        Text("En Clear Medium podés configurar Acción principal, Abrir Clima y Abrir Calendario. En Glass Small 7 podés configurar Acción al tocar. Sin asignar no se abre ninguna app.")
                         Text("Elegí la apariencia Transparente de iOS para el cristal nativo.")
                     }
                     Section("Pronóstico") {
@@ -17,7 +17,7 @@ struct ClearWidgetApp: App {
                         Link("Modelo ECMWF", destination: URL(string: "https://www.ecmwf.int/")!)
                     }
                     Section("Diseño") {
-                        Text("Referencia Clear Medium de Lokki. Uso personal. No distribuir los recursos originales sin autorización.")
+                        Text("Referencias Clear Medium y Glass Small 7 de Lokki. Uso personal. No distribuir los recursos originales sin autorización.")
                     }
                 }.navigationTitle("ClearWidget")
             }

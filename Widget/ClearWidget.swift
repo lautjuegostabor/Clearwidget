@@ -25,8 +25,7 @@ enum Page: String, AppEnum {
     }
 }
 
-// The project intentionally supports a single medium widget. The same kind and
-// bundle IDs are retained so existing BariStore profiles can be reused.
+// Preserve the original medium kind and navigation state for installed widgets.
 private enum Store {
     private static let key = "clearwidget.navigation.state.v2"
     private static let lock = NSLock()
@@ -75,6 +74,7 @@ struct StayOnWidget: AppIntent {
 struct ClearConfiguration: WidgetConfigurationIntent {
     static var title: LocalizedStringResource = "Acciones de ClearWidget"
     static var description: IntentDescription = "Elegí las aplicaciones que abrirá cada pantalla."
+    @Parameter(title: "Acción principal") var home: SystemShortcut?
     @Parameter(title: "Abrir Clima") var weather: SystemShortcut?
     @Parameter(title: "Abrir Calendario") var calendar: SystemShortcut?
     init() {}
@@ -161,12 +161,21 @@ private struct ClearView: View {
         let unit = s * 1164 / 824
         switch entry.page {
         case .home:
-            Button(intent: StayOnWidget()) {
-                HomePage(date: entry.date, s: s)
-                    .contentShape(.interaction, RoundedRectangle(cornerRadius: 100 * s))
+            if let shortcut = entry.configuration.home {
+                Button(intent: RunSystemShortcutIntent(shortcut: shortcut)) {
+                    HomePage(date: entry.date, s: s)
+                        .contentShape(.interaction, RoundedRectangle(cornerRadius: 100 * s))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Inicio, fecha actual")
+            } else {
+                Button(intent: StayOnWidget()) {
+                    HomePage(date: entry.date, s: s)
+                        .contentShape(.interaction, RoundedRectangle(cornerRadius: 100 * s))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Inicio, fecha actual")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Inicio, fecha actual")
         case .calendar:
             action(entry.configuration.calendar, page: .calendar) {
                 CalendarPage(date: entry.date, s: unit)
@@ -378,13 +387,12 @@ private struct NavigationRail: View {
     }
 }
 
-@main
 struct ClearWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "ClearWidget", intent: ClearConfiguration.self, provider: Provider()) { entry in
             ClearView(entry: entry)
         }
-        .configurationDisplayName("ClearWidget")
+        .configurationDisplayName("Clear Medium")
         .description("Inicio, clima y calendario.")
         .supportedFamilies([.systemMedium])
         .contentMarginsDisabled()

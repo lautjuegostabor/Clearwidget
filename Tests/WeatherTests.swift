@@ -32,6 +32,20 @@ struct WeatherTests {
         let query = URLComponents(url: WeatherService.endpoint!, resolvingAgainstBaseURL: false)!.queryItems!
         precondition(query.contains { $0.name == "models" && $0.value == "ecmwf_ifs" })
         precondition(query.contains { $0.name == "timeformat" && $0.value == "unixtime" })
-        print("Weather tests passed")
+        let glass = cache.glassForecast(at: now)
+        precondition(glass.hours.count == 5)
+        precondition(glass.hours.map(\.label) == ["11", "12", "13", "14", "15"])
+        precondition(glass.hours.allSatisfy { $0.asset == "GlassWeather2" })
+        precondition(GlassCondition.asset(2, day: false) == "GlassWeather9")
+        precondition(GlassCondition.asset(80, day: false) == "GlassWeather10")
+        precondition(GlassCondition.asset(95, day: true) == "GlassWeather5")
+        precondition(GlassCondition.description(2) == "Parcialmente nublado")
+        precondition(GlassCondition.description(nil) == "Sin datos")
+        precondition(cache.glassForecast(at: now.addingTimeInterval(7 * 3600)).hours.isEmpty)
+        let midnight = start.addingTimeInterval(23.5 * 3600)
+        let crossing = ForecastCache(fetchedAt: midnight, payload: payload).glassForecast(at: midnight)
+        precondition(crossing.hours.map(\.label) == ["24", "25", "26", "27", "28"])
+        precondition(cache.glassForecast(at: start.addingTimeInterval(11 * 3600)).hours.first?.label == "12")
+        print("Weather and Glass Small forecast tests passed")
     }
 }

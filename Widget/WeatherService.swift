@@ -110,6 +110,7 @@ enum ForecastDisk {
 actor WeatherService {
     static let shared = WeatherService()
     private var inFlight = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
     private let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 5
@@ -123,7 +124,10 @@ actor WeatherService {
 
     // Only scheduled timeline generation may fetch. Navigation uses local cache.
     func refreshIfDue(at now: Date) async {
-        guard !inFlight else { return }
+        if inFlight {
+            await withCheckedContinuation { waiters.append($0) }
+            return
+        }
         if let cache = ForecastDisk.cached, (0..<ForecastDisk.ttl).contains(now.timeIntervalSince(cache.fetchedAt)) { return }
         let defaults = UserDefaults.standard
         let sinceAttempt = now.timeIntervalSince1970 - defaults.double(forKey: ForecastDisk.attemptKey)
@@ -131,7 +135,12 @@ actor WeatherService {
         guard let url = Self.endpoint else { return }
         inFlight = true
         defaults.set(now.timeIntervalSince1970, forKey: ForecastDisk.attemptKey)
-        defer { inFlight = false }
+        defer {
+            inFlight = false
+            let pending = waiters
+            waiters.removeAll()
+            pending.forEach { $0.resume() }
+        }
         do {
             let (data, response) = try await session.data(from: url)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200, data.count <= 100_000 else { return }

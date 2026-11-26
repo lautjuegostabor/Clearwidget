@@ -2,7 +2,7 @@ name: Build ClearWidget IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, v0.5-integration]
 permissions:
   contents: read
 concurrency:
@@ -39,7 +39,7 @@ jobs:
       - name: Test weather cache and forecast selection
         run: |
           set -euo pipefail
-          xcrun swiftc -swift-version 5 Widget/WeatherService.swift Tests/WeatherTests.swift -o /tmp/clearwidget-weather-tests
+          xcrun swiftc -swift-version 5 Widget/WeatherService.swift Widget/GlassSmallForecast.swift Tests/WeatherTests.swift -o /tmp/clearwidget-weather-tests
           /tmp/clearwidget-weather-tests
       - name: Generate exact local artwork
         run: |
@@ -83,10 +83,10 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$ext/Info.plist" | grep -Fx com.apple.widgetkit-extension
           mkdir -p Payload
           cp -R "$app" Payload/
-          zip -qry ClearWidget-v0.4.1.ipa Payload
-          unzip -t ClearWidget-v0.4.1.ipa
+          zip -qry ClearWidget-v0.5.0.ipa Payload
+          unzip -t ClearWidget-v0.5.0.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: ClearWidget-v0.4.1
-          path: ClearWidget-v0.4.1.ipa
+          name: ClearWidget-v0.5.0
+          path: ClearWidget-v0.5.0.ipa
           if-no-files-found: error
