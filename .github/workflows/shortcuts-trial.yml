@@ -1,0 +1,39 @@
+name: ClearWidget Shortcuts permission trial
+on:
+  push:
+    branches: [shortcuts-keychain-trial]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  trial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+      - name: Prepare isolated signer and run existing tests
+        run: |
+          python3 -m venv /tmp/clearwidget-tools
+          /tmp/clearwidget-tools/bin/pip install 'ziglang==0.15.2'
+          echo "/tmp/clearwidget-tools/bin" >> "$GITHUB_PATH"
+          python3 Recovery/verify_signer_source.py /tmp/clearwidget-signer
+          python3 Recovery/prepare_shortcut_trial.py /tmp/clearwidget-signer
+          cd /tmp/clearwidget-signer
+          cargo test --locked --bin baristore bridge_entitlements::tests
+          cargo test --locked --bin baristore sign::bundle::tests
+      - name: Build isolated Minis executable
+        run: |
+          cd /tmp/clearwidget-signer
+          sh scripts/build.sh
+          mkdir -p "$GITHUB_WORKSPACE/trial-output"
+          cp target/aarch64-unknown-linux-musl/release/baristore "$GITHUB_WORKSPACE/trial-output/clearwidget-shortcut-trial"
+          cp LICENSE THIRD_PARTY_NOTICES.md "$GITHUB_WORKSPACE/trial-output/"
+          file "$GITHUB_WORKSPACE/trial-output/clearwidget-shortcut-trial"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClearWidget-Shortcuts-Trial
+          path: trial-output/
+          if-no-files-found: error
