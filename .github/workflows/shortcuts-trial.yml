@@ -23,7 +23,7 @@ jobs:
           python3 Recovery/prepare_shortcut_trial.py /tmp/clearwidget-signer
           cd /tmp/clearwidget-signer
           cargo test --locked --bin baristore bridge_entitlements::tests
-          cargo test --locked --bin baristore sign::bundle::tests
+          cargo test --locked --bin baristore sign::bundle
       - name: Build isolated Minis executable
         run: |
           cd /tmp/clearwidget-signer
