@@ -1,0 +1,12 @@
+# Open Minis runs an Alpine aarch64 (musl) shell under iSH: a static binary,
+# linked by rust-lld. C parts (ring) are compiled by scripts/build.sh.
+# aes_armv8: the aes crate (the tunnel's TLS) uses AES instructions when the
+# CPU reports them (AT_HWCAP), as ring already does for HTTPS; else software.
+# +sha2 +crc: Minis's emulator runs the SHA-1/SHA-256 and CRC32 instructions
+# natively (asbestos crypto.S, crc32*) but its HWCAP (0x11f) does not report
+# them, so run-time checks chose software: signing's hashes (src/hash.rs),
+# ring's SHA-256 and the zip CRC32 (crc32fast) use them this way.
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"
+rustflags = ["-C", "linker-flavor=ld.lld", "-C", "target-feature=+crt-static,+sha2,+crc", "-C", "relocation-model=static",
+             "--cfg", "aes_armv8"]

@@ -1,0 +1,271 @@
+{
+  "source": "barismd/BariStore",
+  "commit": "56165783f31d3e441ae9f76df42c3cc55e239777",
+  "files": [
+    {
+      "path": ".cargo/config.toml",
+      "sha": "2d6140058263f3634f62b85227777c7865c09da5",
+      "mode": "100644"
+    },
+    {
+      "path": "Cargo.lock",
+      "sha": "0c2e75c535e4ad8fa94b9b8e2f7f336787253479",
+      "mode": "100644"
+    },
+    {
+      "path": "Cargo.toml",
+      "sha": "474177bfb6bd650f8388dac9512af41584bbbd90",
+      "mode": "100644"
+    },
+    {
+      "path": "LICENSE",
+      "sha": "38a6f774abbeec93cd37b5d9170ceaaf570a1067",
+      "mode": "100644"
+    },
+    {
+      "path": "README.md",
+      "sha": "2c9b52b238e8519c3f0f454d46e8bef336c9652e",
+      "mode": "100644"
+    },
+    {
+      "path": "THIRD_PARTY_NOTICES.md",
+      "sha": "1794b5c1b8988a19e9a0d840fc9e1d24e95fa7e6",
+      "mode": "100644"
+    },
+    {
+      "path": "assets/baristore.svg",
+      "sha": "919a16d9602ba926c1768cc374718b837c79bf69",
+      "mode": "100644"
+    },
+    {
+      "path": "assets/certs/AppleRootCA.cer",
+      "sha": "8a9ff247419dd22a07c837ba7394aeabdd0f14e2",
+      "mode": "100644"
+    },
+    {
+      "path": "assets/certs/AppleRootCAG3.cer",
+      "sha": "228bfa39cbd5acfe53fb9d196e3c1bbbd28649f8",
+      "mode": "100644"
+    },
+    {
+      "path": "assets/certs/AppleWWDRCAG2.cer",
+      "sha": "b77e1e9eb6eea7cf06c82cb37dc6134902970659",
+      "mode": "100644"
+    },
+    {
+      "path": "assets/certs/AppleWWDRCAG3.cer",
+      "sha": "32f96f81dd6ea4c1c0f8e84698a50df773444b83",
+      "mode": "100644"
+    },
+    {
+      "path": "assets/certs/AppleWWDRCAG4.cer",
+      "sha": "b9f0bf298d3bc184ccd6e64f1482e6786d558bf5",
+      "mode": "100644"
+    },
+    {
+      "path": "assets/certs/AppleWWDRCAG5.cer",
+      "sha": "8b564c76803ca8f835222614eb2e6e7f1a109528",
+      "mode": "100644"
+    },
+    {
+      "path": "assets/certs/AppleWWDRCAG6.cer",
+      "sha": "424a70bd3b78bd3ce45167b12673d056db250ef2",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/build.sh",
+      "sha": "98e96f0e69d019ddeec6dfc59cac49ff7583cb14",
+      "mode": "100755"
+    },
+    {
+      "path": "src/app.rs",
+      "sha": "8e127ec0ac72c5e5ee2bbe7cf24a8c7272c5fe8d",
+      "mode": "100644"
+    },
+    {
+      "path": "src/apple/anisette.rs",
+      "sha": "08871226e39dd127124240fa09a7cb0727317ff4",
+      "mode": "100644"
+    },
+    {
+      "path": "src/apple/gsa.rs",
+      "sha": "5d102e6e2e0813346733b1ff04236e3d02733a77",
+      "mode": "100644"
+    },
+    {
+      "path": "src/apple/mod.rs",
+      "sha": "fe1f21ee1f7d6eba40f725e803a36771f4a48f1c",
+      "mode": "100644"
+    },
+    {
+      "path": "src/apple/portal.rs",
+      "sha": "e295fe4fbf4fbd9303d663c4efecec0be65c20ce",
+      "mode": "100644"
+    },
+    {
+      "path": "src/der.rs",
+      "sha": "1d39cb5e3105c1c34377c2b55deecce502553f5c",
+      "mode": "100644"
+    },
+    {
+      "path": "src/device/jit.rs",
+      "sha": "4ae41ff1b800ccc2612c2ec24c8c0d1bf511ef9d",
+      "mode": "100644"
+    },
+    {
+      "path": "src/device/mod.rs",
+      "sha": "c523023b32dec1970c2ea8e5f1d8e1a4dd28f213",
+      "mode": "100644"
+    },
+    {
+      "path": "src/device/rppairing.rs",
+      "sha": "ffa4050e474601037d4a6556d4de74f2bec14353",
+      "mode": "100644"
+    },
+    {
+      "path": "src/device/services.rs",
+      "sha": "aef321196d3454d81ede6db0bb5b5e97ff66c2dd",
+      "mode": "100644"
+    },
+    {
+      "path": "src/device/session.rs",
+      "sha": "c03329e25d2e784f335c9dba0193c4567c48777d",
+      "mode": "100644"
+    },
+    {
+      "path": "src/device/tcp.rs",
+      "sha": "6002f26e5b7c70c093ff7c306bfa96fffe1a82a7",
+      "mode": "100644"
+    },
+    {
+      "path": "src/device/tls_psk.rs",
+      "sha": "fc15fc1f9ad167e70d76c19f2ed7ade9a3900142",
+      "mode": "100644"
+    },
+    {
+      "path": "src/device/xpc.rs",
+      "sha": "700044b699b4d769a848af961bae32f5bd0a6cfb",
+      "mode": "100644"
+    },
+    {
+      "path": "src/doctor.rs",
+      "sha": "f3ee5abe8b7634fd2df7bdc0a058ff053c8e336f",
+      "mode": "100644"
+    },
+    {
+      "path": "src/hash.rs",
+      "sha": "fb959ac174a94fc5dff599392541a7cb56aac0f3",
+      "mode": "100644"
+    },
+    {
+      "path": "src/icons.rs",
+      "sha": "ee4fb119626552cce5c4b9dd709e7b8cc0aa7b55",
+      "mode": "100644"
+    },
+    {
+      "path": "src/install.rs",
+      "sha": "50da2e8b7f42de0863acc99641b3cfefce4da06a",
+      "mode": "100644"
+    },
+    {
+      "path": "src/log.rs",
+      "sha": "d95c26a990e6189ee5c9b5c557017173e756161c",
+      "mode": "100644"
+    },
+    {
+      "path": "src/main.rs",
+      "sha": "51c8b8964a174fd2167ab809a716621f79d34af2",
+      "mode": "100644"
+    },
+    {
+      "path": "src/minis.rs",
+      "sha": "503ddad01e1e759572e3ff80ca11d669e4623ee7",
+      "mode": "100644"
+    },
+    {
+      "path": "src/pairing/flow.rs",
+      "sha": "3d590ffb3044fb9a50a9247e599f59a3182aa514",
+      "mode": "100644"
+    },
+    {
+      "path": "src/pairing/host.rs",
+      "sha": "e776aff1d3b0f446524f0f4eb73f924d26b2dc4b",
+      "mode": "100644"
+    },
+    {
+      "path": "src/pairing/mod.rs",
+      "sha": "bdbb3c873723b603b6bae2535dc280c395fd103a",
+      "mode": "100644"
+    },
+    {
+      "path": "src/pairing/opack.rs",
+      "sha": "04a1d27f4cab0b693d6deee7f8ea8bcc34d9bf3f",
+      "mode": "100644"
+    },
+    {
+      "path": "src/pairing/record.rs",
+      "sha": "76b73a64bdef586d7c5b3dacf605beb9c561b884",
+      "mode": "100644"
+    },
+    {
+      "path": "src/pairing/tlv8.rs",
+      "sha": "14d8cb265d16794f6ec0b598ae4081cb9fa8da93",
+      "mode": "100644"
+    },
+    {
+      "path": "src/sign/bundle.rs",
+      "sha": "89a0a4c6132c3332e65e53afa688a443c6866a2b",
+      "mode": "100644"
+    },
+    {
+      "path": "src/sign/codesign.rs",
+      "sha": "a38e3ea92afeaefdaf25db4ebc2e444b5d6c6ca5",
+      "mode": "100644"
+    },
+    {
+      "path": "src/sign/mod.rs",
+      "sha": "fc7a3e39296b214257c21ed159db01131c2aa259",
+      "mode": "100644"
+    },
+    {
+      "path": "src/sign/p12.rs",
+      "sha": "81487ff2e5f0084df7dfb5a1cb7db8fcd073ad8a",
+      "mode": "100644"
+    },
+    {
+      "path": "src/siphash.rs",
+      "sha": "098af0108fe3adf187fd75888abc26ad35a43505",
+      "mode": "100644"
+    },
+    {
+      "path": "src/srp.rs",
+      "sha": "10af83e899d87f194ce4de6faa1c8c6e3689c461",
+      "mode": "100644"
+    },
+    {
+      "path": "src/state.rs",
+      "sha": "9d10c34cbc65ab2d578e0a1cde32ed2d4ee9dea1",
+      "mode": "100644"
+    },
+    {
+      "path": "src/store.rs",
+      "sha": "2579fa94659f53f924a695fedb51219a14c023fe",
+      "mode": "100644"
+    },
+    {
+      "path": "src/update.rs",
+      "sha": "62814ead5588de2ebb17d4da8024d471b1316307",
+      "mode": "100644"
+    },
+    {
+      "path": "src/web.rs",
+      "sha": "058a72f59492424b16950857bdf9b057309773b8",
+      "mode": "100644"
+    },
+    {
+      "path": "ui/index.html",
+      "sha": "1f4dfe7f28c3ac19a33aa324eeb54cd6bf884450",
+      "mode": "100644"
+    }
+  ]
+}
