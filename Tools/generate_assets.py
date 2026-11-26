@@ -64,10 +64,11 @@ for name, box in boxes:
         ImageDraw.Draw(inner).rounded_rectangle((left,top,right,bottom),radius=13*scale,fill=255)
         from PIL import ImageChops
         mask = ImageChops.multiply(mask_hi,inner).resize((w,h),Image.Resampling.LANCZOS)
-        # Keep colored indicator and antialiasing, including its immediate rim, unchanged.
+        # Preserve colored indicator pixels without leaving a bright halo in the metal.
+        # A smooth chroma mask excludes the original saturated green/orange pixels.
         rgb = key.convert("RGB")
-        indicator = Image.new("L",(w,h),255)
-        ImageDraw.Draw(indicator).rounded_rectangle((61,77 if name=="OriginalKeyCalendar" else 75,111,99 if name=="OriginalKeyCalendar" else 98),radius=7,fill=0)
+        indicator = Image.new("L",(w,h))
+        indicator.putdata([int(255 * max(0,min(1,(36-(max(p)-min(p)))/28))) for p in rgb.getdata()])
         mask = ImageChops.multiply(mask,indicator)
         darker = ImageEnhance.Brightness(rgb).enhance(0.83)
         pressed = Image.composite(darker,rgb,mask).convert("RGBA")
