@@ -1,18 +1,23 @@
 import SwiftUI
 import WidgetKit
 import CoreLocation
+import AppIntents
 
 @main
 struct ClearWidgetApp: App {
     @State private var installedWidgets = "Sin consultar"
     @State private var locationManager = CLLocationManager()
+    init() {
+        ClearWidgetShortcuts.updateAppShortcutParameters()
+        ClearSign.shared.register()
+    }
     var body: some Scene {
         WindowGroup {
             NavigationStack {
                 Form {
                     Section("ClearWidget") {
-                        Text("En la galería, elegí el tamaño pequeño o mediano. En Editar widget, el pequeño permite elegir Glass Small 7 o Clear Small. El mediano conserva Clear Medium.")
-                        Text("Acción principal configura el panel de inicio del mediano o todo el pequeño. Solo el mediano ofrece las acciones adicionales de Clima y Calendario. Sin asignar no se abre ninguna app.")
+                        Text("En la galería, elegí el tamaño pequeño o mediano. En Editar widget, el pequeño permite elegir Glass Small 7, Clear Small 20 o Clear Small 21. El mediano conserva Clear Medium.")
+                        Text("Acción principal configura el panel de inicio del mediano o todo el pequeño. Clear Small 21 ofrece Calendario, Clima y Actividad por separado. Sin asignar no se abre ninguna app.")
                         Text("Elegí la apariencia Transparente de iOS para el cristal nativo.")
                     }
                     Section("Diagnóstico de widgets") {
@@ -49,10 +54,17 @@ struct ClearWidgetApp: App {
                         Link("Respaldo: Open-Meteo · ECMWF", destination: URL(string: "https://open-meteo.com/")!)
                         Link("Modelo ECMWF", destination: URL(string: "https://www.ecmwf.int/")!)
                     }
+                    Section("Actividad y diagnóstico") {
+                        Text("En Salud, habilitá la escritura de Mi Fitness. El widget recibe totales de una sola fuente mediante Guardar actividad ClearWidget. Elegí la fuente en Editar widget.")
+                        Text("Ejecutá Diagnóstico ClearWidget en Atajos para consultar los datos de la extensión.")
+                        Button("Registrar acciones de Atajos") { ClearWidgetShortcuts.updateAppShortcutParameters() }
+                    }
+                    Section("Firma") { SigningPanel() }
                     Section("Diseño") {
                         Text("Referencias Clear Medium, Glass Small 7 y Clear Small de Lokki. Uso personal. No distribuir los recursos originales sin autorización.")
                     }
                 }.navigationTitle("ClearWidget")
+                    .onAppear { ClearSign.shared.update(); ClearSign.shared.schedule() }
             }
         }
     }

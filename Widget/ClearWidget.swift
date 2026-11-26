@@ -2,6 +2,7 @@ import SwiftUI
 import Foundation
 import WidgetKit
 import AppIntents
+import UIKit
 
 enum Page: String, AppEnum {
     case calendar, home, weather
@@ -72,10 +73,10 @@ struct StayOnWidget: AppIntent {
 }
 
 enum SmallDesign: String, AppEnum {
-    case glass, clear
+    case glass, clear, animated
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "Diseño"
     static var caseDisplayRepresentations: [SmallDesign: DisplayRepresentation] = [
-        .glass: "Glass Small 7", .clear: "Clear Small"
+        .glass: "Glass Small 7", .clear: "Clear Small", .animated: "Clear Small 21"
     ]
 }
 
@@ -86,11 +87,25 @@ struct ClearConfiguration: WidgetConfigurationIntent {
     @Parameter(title: "Abrir Clima") var weather: SystemShortcut?
     @Parameter(title: "Abrir Calendario") var calendar: SystemShortcut?
     @Parameter(title: "Diseño", default: .glass) var design: SmallDesign
+    @Parameter(title: "Abrir Actividad") var activityAction: SystemShortcut?
+    @Parameter(title: "Fuente de actividad", default: .miFitness) var activityProvider: ActivityProvider
+    @Parameter(title: "Otra fuente (nombre exacto)") var customActivitySource: String?
     static var parameterSummary: some ParameterSummary {
         When(widgetFamily: .equalTo, .systemSmall) {
-            Summary {
-                \.$design
-                \.$home
+            When(\.$design, .equalTo, .animated) {
+                Summary {
+                    \.$design
+                    \.$calendar
+                    \.$weather
+                    \.$activityAction
+                    \.$activityProvider
+                    \.$customActivitySource
+                }
+            } otherwise: {
+                Summary {
+                    \.$design
+                    \.$home
+                }
             }
         } otherwise: {
             Summary {
@@ -109,26 +124,37 @@ private struct Entry: TimelineEntry {
     let weather: WeatherReading
     let glass: GlassForecast
     let configuration: ClearConfiguration
+    var smallPage: Small21Page = .calendar
+    var battery: Int? = nil
+    var activity: ActivityReading? = nil
+    var todayLow: Double? = nil
+    var weatherSource: String? = nil
 }
 
 private struct Provider: AppIntentTimelineProvider {
-    private func entry(at now: Date, configuration: ClearConfiguration, family: WidgetFamily) -> Entry {
+    private func entry(at now: Date, configuration: ClearConfiguration, family: WidgetFamily, battery: Int? = nil) -> Entry {
         let page = Store.page
         let cache = ForecastDisk.cached
         return Entry(date: now, page: page,
             weather: family == .systemMedium && page == .weather ? cache?.reading(at: now) ?? .empty : .empty,
             glass: family == .systemSmall ? cache?.glassForecast(at: now) ?? .empty : .empty,
-            configuration: configuration)
+            configuration: configuration,
+            smallPage: Small21Navigation.page,
+            battery: battery,
+            activity: family == .systemSmall && configuration.design == .animated ? ActivityDisk.read(source: configuration.activityProvider.key(custom: configuration.customActivitySource), at: now) : nil,
+            todayLow: cache?.todayMinimum(at: now),
+            weatherSource: cache?.source)
     }
     func placeholder(in context: Context) -> Entry {
         Entry(date: Date(), page: .home, weather: .empty, glass: .empty, configuration: ClearConfiguration())
     }
     func snapshot(for configuration: ClearConfiguration, in context: Context) async -> Entry {
-        entry(at: Date(), configuration: configuration, family: context.family)
+        let battery = context.family == .systemSmall && configuration.design == .animated && !context.isPreview ? await BatteryReader.level() : nil
+        return entry(at: Date(), configuration: configuration, family: context.family, battery: battery)
     }
     func timeline(for configuration: ClearConfiguration, in context: Context) async -> Timeline<Entry> {
         let now = Date()
-        let tap = context.family == .systemMedium && !context.isPreview && Store.consumeTap()
+        let tap = !context.isPreview && (context.family == .systemMedium ? Store.consumeTap() : (configuration.design == .animated && Small21Navigation.consumeTap()))
         if !context.isPreview && !tap {
             await WeatherService.shared.refreshIfDue(at: now)
         }
@@ -138,7 +164,8 @@ private struct Provider: AppIntentTimelineProvider {
         let refresh = tap && ForecastDisk.cached == nil ? date.addingTimeInterval(60) : ForecastDisk.nextRefresh(at: date)
         let nextHour = Date(timeIntervalSince1970: (floor(date.timeIntervalSince1970 / 3600) + 1) * 3600)
         let next = context.family == .systemSmall ? min(refresh, nextHour) : min(midnight, refresh)
-        return Timeline(entries: [entry(at: date, configuration: configuration, family: context.family)], policy: .after(next))
+        let battery = context.family == .systemSmall && configuration.design == .animated && !context.isPreview ? await BatteryReader.level() : nil
+        return Timeline(entries: [entry(at: date, configuration: configuration, family: context.family, battery: battery)], policy: .after(next))
     }
 }
 
@@ -211,7 +238,7 @@ private struct ClearView: View {
             }
         case .weather:
             action(entry.configuration.weather, page: .weather) {
-                WeatherPage(s: unit, weather: entry.weather)
+                WeatherPage(s: unit, weather: entry.weather, source: entry.weatherSource)
                     .frame(width: 824 * unit, height: 460 * unit)
             }
         }
@@ -332,6 +359,7 @@ private struct WeatherGlyph: View {
 private struct WeatherPage: View {
     let s: CGFloat
     let weather: WeatherReading
+    let source: String?
     var body: some View {
         HStack(spacing: 23 * s) {
             VStack(alignment: .leading, spacing: 0) {
@@ -352,7 +380,7 @@ private struct WeatherPage: View {
                     .accessibilityLabel("Máxima de mañana: \(WeatherReading.degrees(weather.tomorrowHigh))")
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }.padding(.horizontal, 26 * s).padding(.vertical, 24 * s).contentShape(Rectangle())
-        .accessibilityHint(weather.fetchedAt.map { "Pronóstico ECMWF actualizado \($0.formatted(date: .omitted, time: .shortened))" } ?? "Datos meteorológicos no disponibles")
+        .accessibilityHint(weather.fetchedAt.map { "Pronóstico \(source == "apple" ? "Apple" : "Open-Meteo") actualizado \($0.formatted(date: .omitted, time: .shortened))" } ?? "Datos meteorológicos no disponibles")
     }
     private var tile: some View {
         RoundedRectangle(cornerRadius: 45 * s)
@@ -414,6 +442,10 @@ private struct FamilyRoot: View {
                 GlassSmallView(forecast: entry.glass, shortcut: entry.configuration.home)
             case .clear:
                 ClearSmallView(date: entry.date, forecast: entry.glass, shortcut: entry.configuration.home)
+            case .animated:
+                ClearSmall21View(date: entry.date, page: entry.smallPage, weather: entry.glass.current,
+                    todayLow: entry.todayLow, battery: entry.battery, activity: entry.activity,
+                    configuration: entry.configuration)
             }
         } else {
             ClearView(entry: entry)
@@ -428,7 +460,7 @@ struct ClearWidget: Widget {
             FamilyRoot(entry: entry)
         }
         .configurationDisplayName("ClearWidget")
-        .description("Dos diseños pequeños configurables y Clear Medium.")
+        .description("Tres diseños pequeños configurables y Clear Medium.")
         .supportedFamilies([.systemSmall, .systemMedium])
         .contentMarginsDisabled()
         .containerBackgroundRemovable(true)

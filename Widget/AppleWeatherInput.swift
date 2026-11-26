@@ -18,6 +18,7 @@ struct AppleWeatherInput: Decodable {
     let current: Hour
     let hourly: [Hour]
     let tomorrowHigh: Double
+    let todayLow: Double?
     let timezone: String?
 
     static func code(_ condition: String) -> Int? {
@@ -42,7 +43,7 @@ struct AppleWeatherInput: Decodable {
         let t = now.timeIntervalSince1970
         func tempOK(_ d: Double) -> Bool { d.isFinite && (-100...70).contains(d) }
         guard position.valid, x.current.time.isFinite, abs(x.current.time - t) <= 600,
-              tempOK(x.current.temperature), tempOK(x.tomorrowHigh), x.hourly.count <= 72 else { throw AppleWeatherError.invalid }
+              tempOK(x.current.temperature), tempOK(x.tomorrowHigh), x.todayLow.map(tempOK) ?? true, x.hourly.count <= 72 else { throw AppleWeatherError.invalid }
         let hours = x.hourly.filter { $0.time.isFinite && $0.time > t && $0.time <= t + 72 * 3600 }.sorted { $0.time < $1.time }
         guard hours.count >= 5, hours[0].time - t <= 3600,
               hours.allSatisfy({ tempOK($0.temperature) }),
@@ -54,6 +55,6 @@ struct AppleWeatherInput: Decodable {
                                       weather_code: rows.map { code($0.condition) }, is_day: rows.map { $0.isDay ? 1 : 0 })
         let zone = x.timezone.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
         return ForecastCache(fetchedAt: now, payload: ForecastPayload(current: c, hourly: h, timezone: zone.identifier),
-                             source: "apple", location: position, tomorrowMaximum: x.tomorrowHigh)
+                             source: "apple", location: position, tomorrowMaximum: x.tomorrowHigh, todayLow: x.todayLow)
     }
 }

@@ -140,5 +140,32 @@ for name, remote, expected, size in [
     im = Image.open(io.BytesIO(raw)).convert("RGBA")
     assert im.size == (size,size)
     assert hashlib.sha256(im.tobytes()).hexdigest() == expected, name
+    if name in ("ClearSmallDay","ClearSmallNight"):
+        # Keep the continuous colored lower-card span intact; erase its black surround.
+        transparent = Image.new("RGBA", im.size)
+        for y in range(178,338):
+            xs = [x for x in range(16,338) if max(im.getpixel((x,y))[:3]) > 60]
+            if xs:
+                left,right = min(xs),max(xs)+1
+                transparent.paste(im.crop((left,y,right,y+1)),(left,y))
+        assert transparent.getpixel((177,100))[3] == 0
+        assert transparent.getpixel((177,250)) == im.getpixel((177,250))
+        im = transparent
     write(name, im)
-print("Verified original Clear assets and day/night artwork.")
+print("Verified original Clear assets and isolated lower cards.")
+
+# Exact Web URL references from 21 - Clear Small.widgy.
+for name, remote in [
+    ("Small21Navigator", "SrvbO1wP1a7z3rc2LetJzaJVVklNfCWDu26Rfkug.png"),
+    ("Small21Activity", "h1lnjAb2XgD7L3zbOKlN8YI28kbsmfwWTcdguCA2.png"),
+    ("Small21Weather", "KSpmICvSRD0VyeqLdSRFWHh5LQHaPn0rQ8Z54Aom.png"),
+    ("Small21Calendar", "xQHxPTgsm4QZmWwlASKKSl9TFnMlH0NnMvl4QdG6.png"),
+]:
+    req = urllib.request.Request(SOURCE + remote, headers={"User-Agent":"ClearWidget personal asset build"})
+    with urllib.request.urlopen(req, timeout=25) as response:
+        raw = response.read(2_000_001)
+    assert len(raw) <= 2_000_000 and raw[:8] == b"\x89PNG\r\n\x1a\n"
+    im = Image.open(io.BytesIO(raw)).convert("RGBA")
+    assert im.width == im.height and 80 <= im.width <= 2000, (name,im.size)
+    print(name, im.size, hashlib.sha256(im.tobytes()).hexdigest())
+    write(name, im)

@@ -2,7 +2,7 @@ name: Build ClearWidget IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main, v0.5-integration, v0.5.2-integration]
+    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration]
 permissions:
   contents: read
 concurrency:
@@ -39,7 +39,7 @@ jobs:
       - name: Test weather cache and forecast selection
         run: |
           set -euo pipefail
-          xcrun swiftc -swift-version 5 Widget/WeatherService.swift Widget/WidgetLocation.swift Widget/AppleWeatherInput.swift Widget/GlassSmallForecast.swift Tests/WeatherTests.swift -o /tmp/clearwidget-weather-tests
+          xcrun swiftc -swift-version 5 Widget/WeatherService.swift Widget/WidgetLocation.swift Widget/AppleWeatherInput.swift Widget/GlassSmallForecast.swift Widget/ActivityData.swift Tests/WeatherTests.swift -o /tmp/clearwidget-weather-tests
           /tmp/clearwidget-weather-tests
       - name: Generate exact local artwork
         run: |
@@ -66,6 +66,12 @@ jobs:
           assert isinstance(x['current']['time'],int)
           print('ECMWF response schema verified')
           PY
+      - name: Install native Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - name: Build pinned ClearSign static library
+        run: bash Tools/build_clearsign.sh
       - name: Generate project and build
         run: |
           set -euo pipefail
@@ -86,17 +92,17 @@ jobs:
           for path, bundle in zip(sys.argv[1:], ["com.clearwidget.app", "com.clearwidget.app.widget"]):
               p = plistlib.loads((pathlib.Path(path) / "Info.plist").read_bytes())
               assert p["CFBundleIdentifier"] == bundle, p
-              assert p["CFBundleShortVersionString"] == "0.5.2", p
-              assert p["CFBundleVersion"] == "8", p
+              assert p["CFBundleShortVersionString"] == "0.5.3", p
+              assert p["CFBundleVersion"] == "9", p
               assert p["CFBundleDisplayName"] == chr(0x2800), p
           print("Verified both final bundle identifiers, display names and versions")
           PY
           mkdir -p Payload
           cp -R "$app" Payload/
-          zip -qry ClearWidget-v0.5.2.ipa Payload
-          unzip -t ClearWidget-v0.5.2.ipa
+          zip -qry ClearWidget-v0.5.3.ipa Payload
+          unzip -t ClearWidget-v0.5.3.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: ClearWidget-v0.5.2
-          path: ClearWidget-v0.5.2.ipa
+          name: ClearWidget-v0.5.3
+          path: ClearWidget-v0.5.3.ipa
           if-no-files-found: error

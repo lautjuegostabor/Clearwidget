@@ -39,7 +39,7 @@ struct ClearSmallView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .foregroundStyle(.white)
-        .containerBackground(for: .widget) { Color.black.opacity(0.12) }
+        .containerBackground(for: .widget) { Color.clear }
     }
     private func artwork(_ s: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {

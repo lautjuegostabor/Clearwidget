@@ -5,8 +5,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: '5.0'
-    MARKETING_VERSION: '0.5.2'
-    CURRENT_PROJECT_VERSION: '8'
+    MARKETING_VERSION: '0.5.3'
+    CURRENT_PROJECT_VERSION: '9'
     CODE_SIGNING_ALLOWED: 'NO'
 targets:
   ClearWidget:
@@ -18,18 +18,24 @@ targets:
       - path: Widget/WidgetLocation.swift
       - path: Widget/AppleWeatherInput.swift
       - path: Widget/AppleWeatherIntent.swift
+      - path: Widget/ActivityData.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.clearwidget.app
         TARGETED_DEVICE_FAMILY: '1'
+        OTHER_LDFLAGS: ['$(inherited)', '$(PROJECT_DIR)/Signing/Native/libclearsign.a', '-framework', 'Security', '-framework', 'SystemConfiguration', '-framework', 'CoreFoundation', '-liconv', '-lresolv', '-lz', '-lc++']
     info:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: "\u2800"
-        CFBundleShortVersionString: "0.5.2"
-        CFBundleVersion: "8"
+        CFBundleName: ClearWidget
+        CFBundleSpokenName: ClearWidget
+        CFBundleShortVersionString: "0.5.3"
+        CFBundleVersion: "9"
         NSLocationWhenInUseUsageDescription: "ClearWidget usa tu ubicación solo para consultar el clima del lugar donde estés."
         UILaunchScreen: {}
+        BGTaskSchedulerPermittedIdentifiers: [com.clearwidget.app.clearsign]
+        UIBackgroundModes: [processing]
     dependencies:
       - target: ClearWidgetExtension
         embed: true
@@ -48,8 +54,8 @@ targets:
       path: Widget/Info.plist
       properties:
         CFBundleDisplayName: "\u2800"
-        CFBundleShortVersionString: "0.5.2"
-        CFBundleVersion: "8"
+        CFBundleShortVersionString: "0.5.3"
+        CFBundleVersion: "9"
         NSWidgetWantsLocation: true
         NSLocationWhenInUseUsageDescription: "Ubicación aproximada para consultar el clima local."
         NSExtension:

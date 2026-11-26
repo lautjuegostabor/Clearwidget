@@ -71,6 +71,13 @@ struct WeatherTests {
         precondition(ForecastDisk.select(apple: apple, fallback: fallback, location: location, at: now.addingTimeInterval(80*60))?.source == "openmeteo")
         let moved = WeatherLocation(latitude: -34.6, longitude: -58.4, observedAt: now)
         precondition(ForecastDisk.select(apple: apple, fallback: fallback, location: moved, at: now) == nil)
-        print("Weather, Apple ingestion, source selection, travel invalidation and icon tests passed")
+        precondition(cache.todayMinimum(at: now) == 0)
+        precondition(apple.todayMinimum(at: now) == nil)
+        let item = ActivityReading(source: "Mi Fitness", steps: 1234, activeKcal: 120, fetchedAt: Date())
+        precondition(ActivityDisk.valid(item,at: item.fetchedAt))
+        precondition(!ActivityDisk.valid(item,at: item.fetchedAt.addingTimeInterval(86401)))
+        precondition(ActivityDisk.normalize("  MI Fitness ") == ActivityDisk.normalize("Mi Fitness"))
+        precondition(!ActivityDisk.valid(ActivityReading(source: "",steps: 1,activeKcal: 0,fetchedAt: item.fetchedAt),at: item.fetchedAt))
+        print("Weather and activity tests passed")
     }
 }

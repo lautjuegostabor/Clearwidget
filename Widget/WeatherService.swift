@@ -51,6 +51,21 @@ struct ForecastCache: Codable, Sendable {
     var source: String? = nil
     var location: WeatherLocation? = nil
     var tomorrowMaximum: Double? = nil
+    var todayLow: Double? = nil
+
+    func todayMinimum(at now: Date) -> Double? {
+        guard (0...21600).contains(now.timeIntervalSince(fetchedAt)) else { return nil }
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = payload.timezone.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
+        if source == "apple" { return c.isDate(fetchedAt,inSameDayAs: now) ? todayLow : nil }
+        let start = c.startOfDay(for: now)
+        guard let end = c.date(byAdding: .day,value: 1,to: start) else { return nil }
+        let values = zip(payload.hourly.time,payload.hourly.temperature_2m).compactMap { time,temp -> Double? in
+            let d = Date(timeIntervalSince1970: Double(time))
+            return d >= start && d < end ? temp : nil
+        }
+        return values.count >= 20 ? values.min() : nil
+    }
 
     func reading(at now: Date) -> WeatherReading {
         let age = now.timeIntervalSince(fetchedAt)
