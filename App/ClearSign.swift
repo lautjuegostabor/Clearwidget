@@ -78,7 +78,7 @@ private enum ClearSignVault {
         guard result["account.plist"] != nil,result["pairing.plist"] != nil,
               let route=result["anisette-server"].flatMap({String(data:$0,encoding:.utf8)}),
               route.hasPrefix("https://"),result.keys.contains(where:{$0.hasPrefix("anisette-") && $0.hasSuffix(".plist")})
-        else{throw ClearSignError(message:"Faltan sesión, identidad de anisette o emparejamiento de BariStore.")}
+        else{throw ClearSignError(message:"Faltan sesión, identidad de anisette o emparejamiento.")}
         return result
     }
 }
@@ -100,10 +100,15 @@ private struct SignReceipt:Codable {
 
 @MainActor final class ClearSign:ObservableObject {
     static let shared=ClearSign()
-    static let taskID="com.clearwidget.app.clearsign"
+    static var taskID: String? {
+        let ids = Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String] ?? []
+        let matches = ids.filter { $0.hasSuffix(".clearsign") }
+        return matches.count == 1 ? matches.first : nil
+    }
     @Published private(set) var configured=false
     @Published private(set) var status="Sin configurar"
     @Published private(set) var running=false
+    @Published private(set) var setupActive=false
     @Published private(set) var expiry:Date?
     @Published var automatic:Bool {
         didSet {UserDefaults.standard.set(automatic,forKey:"clearsign.auto");schedule();Task{await notifications()}}
@@ -126,41 +131,57 @@ private struct SignReceipt:Codable {
     func update(){
         configured=ClearSignVault.load() != nil
         expiry=currentExpiry(EmbeddedProfile.installed())
-        if !configured{status="Importá tu sesión local de BariStore."}
+        if !configured{status="Configurá el emparejamiento y la cuenta de firma, o migrá una sesión existente."}
         else if expiry==nil{status="No se pudieron leer los dos perfiles incluidos."}
-        else if status=="Sin configurar" || status.hasPrefix("Importá"){status="Sesión importada. Pendiente de renovación comprobada."}
+        else if status=="Sin configurar" || status.hasPrefix("Configurá"){status="Sesión importada. Pendiente de renovación comprobada."}
     }
     func register(){
         guard !registered else{return}
-        registered=BGTaskScheduler.shared.register(forTaskWithIdentifier:Self.taskID,using:nil){task in
+        guard let taskID = Self.taskID else { status = "Falta el identificador efectivo de renovación."; return }
+        if let root = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false) {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent("ClearSign-Transient", isDirectory: true))
+        }
+        registered=BGTaskScheduler.shared.register(forTaskWithIdentifier:taskID,using:nil){task in
             guard let task=task as? BGProcessingTask else{task.setTaskCompleted(success:false);return}
             Task{@MainActor in Self.shared.handle(task)}
         }
     }
+    func setSetupActive(_ active: Bool) {
+        setupActive = active
+        schedule()
+    }
     func schedule(){
-        guard registered else{return}
-        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier:Self.taskID)
-        guard automatic,configured,let expiry else{return}
+        guard registered, let taskID = Self.taskID else{return}
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier:taskID)
+        guard !setupActive,automatic,configured,let expiry else{return}
         let earliest=max(Date().addingTimeInterval(60),expiry.addingTimeInterval(-5*86400))
         let last=Date(timeIntervalSince1970:UserDefaults.standard.double(forKey:attemptKey))
-        let req=BGProcessingTaskRequest(identifier:Self.taskID)
+        let req=BGProcessingTaskRequest(identifier:taskID)
         req.earliestBeginDate=max(earliest,last.addingTimeInterval(6*3600))
         req.requiresNetworkConnectivity=true
         req.requiresExternalPower=false
         do{try BGTaskScheduler.shared.submit(req)}catch{status="iOS no aceptó programar la renovación. "+error.localizedDescription}
     }
-    func importSession(_ url:URL){
-        guard !running else{return}
+    @discardableResult func importSession(_ url:URL, fromSetup: Bool = false) -> Bool {
+        guard !running, !setupActive || fromSetup else{return false}
         do{
             let data=try ClearSignVault.readFolder(url)
             try ClearSignVault.save(data)
             configured=true;status="Sesión importada. Probá renovar ahora."
             update();schedule()
             Task{await notifications()}
-        }catch{status=error.localizedDescription}
+            return true
+        }catch{status=error.localizedDescription;return false}
+    }
+    func recoveryExport() throws -> (ClearRecoveryDocument, String) {
+        guard !running, !setupActive, let files=ClearSignVault.load() else { throw ClearSignError(message:"No hay sesión disponible.") }
+        let profiles=EmbeddedProfile.installed()
+        guard profiles.count==2,let until=currentExpiry(profiles) else { throw ClearSignError(message:"No hay dos perfiles válidos.") }
+        let request=SignRequest(bundles:profiles.map{.init(bundleID:$0.bundleID,profile:$0.bytes.base64EncodedString())}, previousExpiry:UInt64(max(0,until.timeIntervalSince1970)))
+        return try ClearRecoveryExport.encrypt(request:JSONEncoder().encode(request),files:files)
     }
     func forget(){
-        guard !running else{return}
+        guard !running,!setupActive else{return}
         automatic=false;ClearSignVault.erase();configured=false
         status="Sesión eliminada de Keychain."
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers:alertIDs)
@@ -195,7 +216,7 @@ private struct SignReceipt:Codable {
         }
     }
     func renew(automaticRun:Bool=false) async -> Bool {
-        guard !running,let data=ClearSignVault.load() else{return false}
+        guard !running,!setupActive,let data=ClearSignVault.load() else{return false}
         let profiles=EmbeddedProfile.installed()
         guard profiles.count==2,let until=currentExpiry(profiles) else{status="No hay dos perfiles válidos para comprobar.";return false}
         guard until>Date() else{status="Firma vencida: recuperá la instalación con BariStore.";return false}
@@ -256,7 +277,7 @@ private struct SignReceipt:Codable {
     }
     private static func explanation(_ code:String?)->String{
         switch code{
-        case "session_unavailable","session_route_invalid":return "sesión de Apple no disponible. Reexportá desde BariStore."
+        case "session_unavailable","session_route_invalid":return "sesión de Apple no disponible. Requiere configuración local explícita."
         case "vpn_or_pairing_unavailable","pairing_missing":return "LocalDevVPN o emparejamiento no disponible."
         case "certificate_changed","entitlements_changed","profile_identity_mismatch","device_mismatch":return "el perfil no coincide con la firma instalada; no se instaló."
         case "profile_not_extended":return "Apple no entregó una extensión del vencimiento."
@@ -276,11 +297,11 @@ struct SigningPanel:View {
             LabeledContent("Vencimiento de perfiles",value:expiry.formatted(date:.abbreviated,time:.shortened))
         }else{Text("Vencimiento no disponible.")}
         Text(signing.status).font(.footnote)
-        Toggle("Renovación preventiva",isOn:$signing.automatic).disabled(!signing.configured || signing.running)
-        Button("Importar sesión local de BariStore"){importing=true}.disabled(signing.running)
-        Button("Renovar ahora"){Task{_ = await signing.renew()}}.disabled(!signing.configured || signing.running)
+        Toggle("Renovación preventiva",isOn:$signing.automatic).disabled(!signing.configured || signing.running || signing.setupActive)
+        Button("Migrar sesión local existente (opcional)"){importing=true}.disabled(signing.running || signing.setupActive)
+        Button("Renovar ahora"){Task{_ = await signing.renew()}}.disabled(!signing.configured || signing.running || signing.setupActive)
         Button("Habilitar avisos de vencimiento"){Task{await signing.enableAlerts()}}
-        Button("Eliminar sesión de firma",role:.destructive){signing.forget()}.disabled(!signing.configured || signing.running)
+        Button("Eliminar sesión de firma",role:.destructive){signing.forget()}.disabled(!signing.configured || signing.running || signing.setupActive)
         Text("Requiere LocalDevVPN y sesión válida. iOS decide cuándo ejecuta tareas en segundo plano. Si vence, recuperá con BariStore. No se almacena contraseña ni clave privada de firma.")
             .font(.caption).foregroundStyle(.secondary)
             .fileImporter(isPresented:$importing,allowedContentTypes:[.folder]){result in

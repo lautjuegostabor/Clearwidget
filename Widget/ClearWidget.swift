@@ -154,6 +154,7 @@ private struct Provider: AppIntentTimelineProvider {
     }
     func timeline(for configuration: ClearConfiguration, in context: Context) async -> Timeline<Entry> {
         let now = Date()
+        if !context.isPreview { ShortcutBridge.consumeInWidget(at: now) }
         let tap = !context.isPreview && (context.family == .systemMedium ? Store.consumeTap() : (configuration.design == .animated && Small21Navigation.consumeTap()))
         if !context.isPreview && !tap {
             await WeatherService.shared.refreshIfDue(at: now)

@@ -1,12 +1,13 @@
 name: ClearWidget
 options:
+  developmentLanguage: es
   deploymentTarget:
     iOS: '27.0'
 settings:
   base:
     SWIFT_VERSION: '5.0'
-    MARKETING_VERSION: '0.5.3'
-    CURRENT_PROJECT_VERSION: '9'
+    MARKETING_VERSION: '0.5.4'
+    CURRENT_PROJECT_VERSION: '10'
     CODE_SIGNING_ALLOWED: 'NO'
 targets:
   ClearWidget:
@@ -17,7 +18,7 @@ targets:
       - path: Widget/WeatherService.swift
       - path: Widget/WidgetLocation.swift
       - path: Widget/AppleWeatherInput.swift
-      - path: Widget/AppleWeatherIntent.swift
+      - path: Widget/ShortcutBridge.swift
       - path: Widget/ActivityData.swift
     settings:
       base:
@@ -30,12 +31,18 @@ targets:
         CFBundleDisplayName: "\u2800"
         CFBundleName: ClearWidget
         CFBundleSpokenName: ClearWidget
-        CFBundleShortVersionString: "0.5.3"
-        CFBundleVersion: "9"
+        CFBundleDevelopmentRegion: es
+        INAlternativeAppNames:
+          - INAlternativeAppName: ClearWidget
+        CFBundleShortVersionString: "0.5.4"
+        CFBundleVersion: "10"
         NSLocationWhenInUseUsageDescription: "ClearWidget usa tu ubicación solo para consultar el clima del lugar donde estés."
         UILaunchScreen: {}
         BGTaskSchedulerPermittedIdentifiers: [com.clearwidget.app.clearsign]
         UIBackgroundModes: [processing]
+        NSLocalNetworkUsageDescription: "ClearWidget anuncia temporalmente un emparejamiento propio, solo si lo autorizás."
+        NSBonjourServices: ['_remotepairing-pairable-host._tcp']
+        NSFaceIDUsageDescription: "Autorizá la creación local de un respaldo cifrado de ClearSign."
     dependencies:
       - target: ClearWidgetExtension
         embed: true
@@ -54,8 +61,8 @@ targets:
       path: Widget/Info.plist
       properties:
         CFBundleDisplayName: "\u2800"
-        CFBundleShortVersionString: "0.5.3"
-        CFBundleVersion: "9"
+        CFBundleShortVersionString: "0.5.4"
+        CFBundleVersion: "10"
         NSWidgetWantsLocation: true
         NSLocationWhenInUseUsageDescription: "Ubicación aproximada para consultar el clima local."
         NSExtension:

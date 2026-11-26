@@ -11,6 +11,7 @@ mod hash;
 mod siphash;
 mod srp;
 mod state;
+mod setup;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use plist::{Dictionary,Value};
@@ -106,7 +107,7 @@ async fn renew(input: Input) -> Result<u64,&'static str> {
 }
 fn execute(dir:&str,bytes:&[u8])->Result<u64,&'static str>{
     if bytes.len()>3_000_000 || !Path::new(dir).is_absolute(){return Err("input_invalid");}
-    let _guard=LOCK.lock().map_err(|_|"engine_busy")?;
+    let _guard=LOCK.try_lock().map_err(|_|"engine_busy")?;
     std::env::set_var("BARISTORE_HOME",dir);
     let route=std::fs::read_to_string(state::path("anisette-server")).map_err(|_|"session_unavailable")?;
     if !route.lines().next().map(|x|x.starts_with("https://")).unwrap_or(false){return Err("session_route_invalid");}
@@ -116,6 +117,8 @@ fn execute(dir:&str,bytes:&[u8])->Result<u64,&'static str>{
     rt.shutdown_timeout(Duration::from_secs(2));
     r
 }
+// Same conservative profile-only operation for the independent recovery binary.
+pub fn recover_profiles(dir:&str,bytes:&[u8])->Result<u64,&'static str>{execute(dir,bytes)}
 #[no_mangle]
 pub unsafe extern "C" fn clearsign_refresh(dir:*const c_char,data:*const u8,len:usize)->*mut c_char{
     let result=std::panic::catch_unwind(||{

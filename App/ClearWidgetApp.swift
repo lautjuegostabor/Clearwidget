@@ -6,9 +6,11 @@ import AppIntents
 @main
 struct ClearWidgetApp: App {
     @State private var installedWidgets = "Sin consultar"
+    @State private var shortcutsStatus = "Sin consultar"
     @State private var locationManager = CLLocationManager()
     init() {
         ClearWidgetShortcuts.updateAppShortcutParameters()
+        ClearSignSetup.purgeAbandonedSetup()
         ClearSign.shared.register()
     }
     var body: some Scene {
@@ -57,9 +59,22 @@ struct ClearWidgetApp: App {
                     Section("Actividad y diagnóstico") {
                         Text("En Salud, habilitá la escritura de Mi Fitness. El widget recibe totales de una sola fuente mediante Guardar actividad ClearWidget. Elegí la fuente en Editar widget.")
                         Text("Ejecutá Diagnóstico ClearWidget en Atajos para consultar los datos de la extensión.")
-                        Button("Registrar acciones de Atajos") { ClearWidgetShortcuts.updateAppShortcutParameters() }
+                        Button("Registrar acciones de Atajos") {
+                            ClearWidgetShortcuts.updateAppShortcutParameters()
+                            shortcutsStatus = "Registro solicitado a iOS; no confirma que Atajos las muestre."
+                        }
+                        Button("Probar comunicación con widgets") {
+                            do { try ShortcutBridge.beginProbe(); shortcutsStatus = "Prueba enviada. Consultá el resultado cuando iOS actualice el widget." }
+                            catch { shortcutsStatus = error.localizedDescription }
+                            WidgetCenter.shared.reloadTimelines(ofKind: "ClearWidget")
+                        }
+                        Button("Consultar diagnóstico") {
+                            do { shortcutsStatus = try ShortcutBridge.diagnostic() }
+                            catch { shortcutsStatus = error.localizedDescription }
+                        }
+                        Text(shortcutsStatus).font(.footnote)
                     }
-                    Section("Firma") { SigningPanel() }
+                    Section("Firma") { SigningPanel(); ClearSignSetupPanel(); ClearRecoveryExportPanel() }
                     Section("Diseño") {
                         Text("Referencias Clear Medium, Glass Small 7 y Clear Small de Lokki. Uso personal. No distribuir los recursos originales sin autorización.")
                     }

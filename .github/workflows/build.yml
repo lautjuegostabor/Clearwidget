@@ -2,7 +2,7 @@ name: Build ClearWidget IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration]
+    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration, v0.5.4-integration]
 permissions:
   contents: read
 concurrency:
@@ -92,17 +92,50 @@ jobs:
           for path, bundle in zip(sys.argv[1:], ["com.clearwidget.app", "com.clearwidget.app.widget"]):
               p = plistlib.loads((pathlib.Path(path) / "Info.plist").read_bytes())
               assert p["CFBundleIdentifier"] == bundle, p
-              assert p["CFBundleShortVersionString"] == "0.5.3", p
-              assert p["CFBundleVersion"] == "9", p
+              assert p["CFBundleShortVersionString"] == "0.5.4", p
+              assert p["CFBundleVersion"] == "10", p
               assert p["CFBundleDisplayName"] == chr(0x2800), p
           print("Verified both final bundle identifiers, display names and versions")
           PY
+          python3 Tools/check_shortcut_metadata.py "$app" "$ext"
           mkdir -p Payload
           cp -R "$app" Payload/
-          zip -qry ClearWidget-v0.5.3.ipa Payload
-          unzip -t ClearWidget-v0.5.3.ipa
+          zip -qry ClearWidget-v0.5.4.ipa Payload
+          unzip -t ClearWidget-v0.5.4.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: ClearWidget-v0.5.3
-          path: ClearWidget-v0.5.3.ipa
+          name: ClearWidget-v0.5.4
+          path: ClearWidget-v0.5.4.ipa
+          if-no-files-found: error
+
+  recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+      - name: Prepare local build dependencies
+        run: |
+          python3 -m venv /tmp/clearwidget-tools
+          /tmp/clearwidget-tools/bin/pip install 'cryptography>=44,<49' 'ziglang==0.15.2'
+          echo "/tmp/clearwidget-tools/bin" >> "$GITHUB_PATH"
+      - name: Verify capsule and signer patch
+        run: |
+          python3 Tools/verify_vendor.py Vendor
+          python3 -m unittest discover -s Tests -p 'test_recovery_*.py'
+          python3 Recovery/verify_signer_source.py /tmp/clearwidget-signer
+      - name: Compile and test narrow signer (no account or device)
+        run: |
+          cd /tmp/clearwidget-signer
+          cargo test --locked --bin baristore bridge_entitlements::tests
+      - name: Build profile-only recovery for documented Open Minis target
+        run: |
+          bash Recovery/build_profile_recovery.sh aarch64-unknown-linux-musl
+          file .clearrecovery-build/output/clearrecovery
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClearRecovery-v0.5.4-experimental
+          path: .clearrecovery-build/output/
           if-no-files-found: error
