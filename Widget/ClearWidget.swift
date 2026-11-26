@@ -170,6 +170,7 @@ private struct Provider: AppIntentTimelineProvider {
         let mark = context.isPreview ? nil : WidgetInteraction.current(at: now)
         let tap = mark != nil
         if !context.isPreview && !tap {
+            ShortcutBridge.consumeInWidget(at: now)
             await WeatherService.shared.refreshIfDue(at: now)
         }
         // Read the latest state after any scheduled network request, never restore an old page.

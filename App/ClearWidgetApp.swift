@@ -64,7 +64,18 @@ struct ClearWidgetApp: App {
                             shortcutsStatus = "Registro solicitado a iOS; no confirma que Atajos las muestre."
                         }
                         Link("Abrir Atajos para ejecutar el diagnóstico", destination: URL(string: "shortcuts://")!)
-                        Text("Diagnóstico ClearWidget debe indicar que la acción se ejecutó en la extensión. También muestra los tiempos de la última navegación; no necesita un puente Keychain.").font(.caption)
+                        Button("Probar comunicación con el widget") {
+                            do {
+                                try ShortcutBridge.beginProbe()
+                                shortcutsStatus = "Prueba escrita en el grupo compartido. iOS debe actualizar el widget; después consultá el resultado."
+                                WidgetCenter.shared.reloadTimelines(ofKind: "ClearWidget")
+                            } catch { shortcutsStatus = error.localizedDescription }
+                        }
+                        Button("Consultar recepción y navegación") {
+                            do { shortcutsStatus = try ShortcutBridge.diagnostic() }
+                            catch { shortcutsStatus = error.localizedDescription }
+                        }
+                        Text("La recepción y los tiempos se consultan aquí, aunque Atajos no muestre las acciones. Si aparece -34018, la firma instalada no permite el grupo compartido.").font(.caption)
                         Text(shortcutsStatus).font(.footnote)
                     }
                     Section("Firma") { SigningPanel(); ClearSignSetupPanel(); ClearRecoveryExportPanel() }

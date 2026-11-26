@@ -19,7 +19,14 @@ enum ShortcutBridgeError: LocalizedError {
 enum ShortcutBridge {
     private static let service = "com.clearwidget.shortcut.bridge.v1"
     private struct Probe: Codable { let id: UUID; let created: Date }
-    private struct Ack: Codable { let id: UUID; let seen: Date }
+    private struct Ack: Codable {
+        let id: UUID
+        let seen: Date
+        let weatherSource: String?
+        let weatherReceived: Date?
+        let activityReceived: [String: Date]?
+        let interaction: String?
+    }
     private struct WeatherPacket: Codable { let json: String; let date: Date }
     private static func group() throws -> String {
         guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
@@ -69,26 +76,29 @@ enum ShortcutBridge {
     static func beginProbe() throws {
         try put(Probe(id: UUID(), created: Date()), "probe")
     }
-    private static func verified() throws -> Bool {
-        guard let p = try get(Probe.self, "probe"), let a = try get(Ack.self, "ack") else { return false }
-        return p.id == a.id && a.seen >= p.created && (-60...7200).contains(Date().timeIntervalSince(a.seen))
-    }
     static func diagnostic() throws -> String {
-        if try verified() { return "Atajos responde. Puente local confirmado por la extensión." }
-        if try get(Probe.self, "probe") == nil { try beginProbe() }
-        return "Atajos responde. Esperando confirmación de la extensión; añadí un widget y volvé a consultar."
+        guard let p = try get(Probe.self, "probe") else {
+            try beginProbe()
+            return "La app puede escribir en el grupo compartido. Esperando respuesta del widget."
+        }
+        guard let a = try get(Ack.self, "ack"), p.id == a.id, a.seen >= p.created else {
+            return "La app puede acceder al grupo compartido; el widget todavía no confirmó la lectura."
+        }
+        let stamp = a.seen.formatted(.dateTime.day().month().hour().minute().second())
+        let weather = a.weatherSource ?? "sin datos"
+        let apple = a.weatherReceived.map { $0.formatted(.dateTime.hour().minute().second()) } ?? "no recibido"
+        let sources = (a.activityReceived ?? [:]).keys.sorted().joined(separator: ", ")
+        return "Puente confirmado por el widget (\(stamp)). Clima activo: \(weather). Apple recibido: \(apple). Actividad recibida: \(sources.isEmpty ? "ninguna" : sources). \(a.interaction ?? "Sin medición de navegación.")"
     }
     static func storeWeather(_ json: String) throws {
         let now = Date()
         _ = try AppleWeatherInput.parse(json, at: now)
-        guard try verified() else { throw ShortcutBridgeError.unverified }
         try put(WeatherPacket(json: json, date: now), "weather")
     }
     static func storeActivity(source: String, steps: Int, kcal: Double) throws {
         let now = Date()
         let item = ActivityReading(source: source, steps: steps, activeKcal: kcal, fetchedAt: now)
         guard ActivityDisk.valid(item, at: now) else { throw ActivityError.invalid }
-        guard try verified() else { throw ShortcutBridgeError.unverified }
         // Single writer (host), serialized by the AppIntent actor. Bound retention.
         var items = try get([String: ActivityReading].self, "activity") ?? [:]
         items = items.filter { ActivityDisk.valid($0.value, at: now) }
@@ -100,10 +110,6 @@ enum ShortcutBridge {
     // Called exclusively by the extension's timeline, not by the host. Local
     // caches preserve the existing weather selection and action/navigation logic.
     static func consumeInWidget(at now: Date) {
-        if let p = try? get(Probe.self, "probe"), p.created <= now {
-            let old = try? get(Ack.self, "ack")
-            if old?.id != p.id || now.timeIntervalSince(old?.seen ?? .distantPast) > 1800 { try? put(Ack(id: p.id, seen: now), "ack") }
-        }
         if let w = try? get(WeatherPacket.self, "weather"),
            (0..<ForecastDisk.appleFreshness).contains(now.timeIntervalSince(w.date)),
            let cache = try? AppleWeatherInput.parse(w.json, at: w.date), let position = cache.location,
@@ -111,12 +117,21 @@ enum ShortcutBridge {
            ForecastDisk.location.map({ $0.observedAt <= w.date || $0.near(position) }) ?? true {
             do { try ForecastDisk.updateLocation(position); try ForecastDisk.save(cache, key: ForecastDisk.appleKey) } catch { }
         }
+        var received: [String:Date] = [:]
         if let items = try? get([String: ActivityReading].self, "activity") {
             for item in items.values where ActivityDisk.valid(item, at: now) {
                 if (ActivityDisk.read(source: item.source, at: now)?.fetchedAt ?? .distantPast) < item.fetchedAt {
                     try? ActivityDisk.save(source: item.source, steps: item.steps, kcal: item.activeKcal, at: item.fetchedAt)
                 }
+                if let stored = ActivityDisk.read(source: item.source, at: now), stored.fetchedAt >= item.fetchedAt {
+                    received[item.source] = stored.fetchedAt
+                }
             }
+        }
+        if let p = try? get(Probe.self, "probe"), p.created <= now {
+            try? put(Ack(id:p.id, seen:Date(), weatherSource:ForecastDisk.cached(at:now)?.source,
+                         weatherReceived:ForecastDisk.apple?.fetchedAt, activityReceived:received,
+                         interaction:WidgetInteraction.diagnostic()), "ack")
         }
     }
 }

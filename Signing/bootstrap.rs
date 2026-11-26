@@ -4,7 +4,7 @@ use super::*;
 use crate::sign::{bundle::{self, Ipa, Kind, Plan, Signing}, codesign::Identity};
 use rsa::pkcs8::EncodePrivateKey;
 use sha2::{Digest,Sha256};
-use std::{collections::{HashMap,HashSet},io::Cursor};
+use std::{collections::{HashMap,HashSet},io::{Cursor,Read}};
 
 const APP: &str = "com.clearwidget.app";
 const WIDGET: &str = "com.clearwidget.app.widget";
@@ -54,18 +54,20 @@ fn profile_for_new(raw:&[u8], team_id:&str, id:&str, udid:&str, leaf:&[u8], now:
     if ent.get("com.apple.developer.team-identifier").and_then(Value::as_string)!=Some(team_id){
         return Err("profile_identity_mismatch".into());
     }
-    // Keep the default Keychain group authorized by this profile, never a wildcard.
-    // No shared bridge, App Group or extra capability is added in this release.
+    // Default group first; add only the narrow data bridge authorized by the profile.
     let app=app_id(&p).ok_or("profile_invalid")?;
     let prefix=app.split_once('.').ok_or("profile_invalid")?.0;
     let wild=format!("{prefix}.*");
     let permitted=ent.get("keychain-access-groups").and_then(Value::as_array).ok_or("bootstrap_keychain_not_authorized")?;
-    if !permitted.iter().filter_map(Value::as_string).any(|g|g==app||g==wild.as_str()){
+    let shared = format!("{prefix}.com.clearwidget.bridge");
+    let permits = |wanted: &str| permitted.iter().filter_map(Value::as_string)
+        .any(|g|g==wanted||g==wild.as_str());
+    if !permits(app)||!permits(&shared) {
         return Err("bootstrap_keychain_not_authorized".into());
     }
-    let mut groups=vec![Value::String(app.to_owned())];
+    let mut groups=vec![Value::String(app.to_owned()),Value::String(shared.clone())];
     for g in permitted.iter().filter_map(Value::as_string){
-        if !g.contains('*') && g!=app {groups.push(Value::String(g.to_owned()));}
+        if !g.contains('*') && g!=app && g!=shared.as_str() {groups.push(Value::String(g.to_owned()));}
     }
     ent.insert("keychain-access-groups".into(),Value::Array(groups));
     Ok((ent,expires))
@@ -90,9 +92,28 @@ fn chain_for(leaf:&[u8])->Result<Vec<Vec<u8>>,String>{
     Err("bootstrap_certificate_chain_unknown".into())
 }
 
+const SHORTCUT_ROOT: &str = "Payload/ClearWidget.app/Metadata.appintents/root.ssu.yaml";
+fn read_shortcut_root(bytes:&[u8])->Result<Vec<u8>,String>{
+    let mut z=zip::ZipArchive::new(Cursor::new(bytes)).map_err(|_|"bootstrap_ipa_invalid")?;
+    let f=z.by_name(SHORTCUT_ROOT).map_err(|_|"bootstrap_shortcut_metadata_missing")?;
+    if f.size()>64*1024{return Err("bootstrap_shortcut_metadata_invalid".into());}
+    let mut raw=Vec::new();f.take(64*1024+1).read_to_end(&mut raw).map_err(|_|"bootstrap_shortcut_metadata_invalid")?;
+    if raw.len()>64*1024{return Err("bootstrap_shortcut_metadata_invalid".into());}
+    Ok(raw)
+}
+fn rewrite_shortcut_root(raw:&[u8],id:&str)->Result<Vec<u8>,String>{
+    let s=std::str::from_utf8(raw).map_err(|_|"bootstrap_shortcut_metadata_invalid")?;
+    let old="    bundleIdentifier: com.clearwidget.app";
+    if s.lines().filter(|l|*l==old).count()!=1 || !id.starts_with("com.clearwidget.app.") ||
+       !id.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'.') {
+        return Err("bootstrap_shortcut_metadata_invalid".into());
+    }
+    Ok(s.replacen(old,&format!("    bundleIdentifier: {id}"),1).into_bytes())
+}
 async fn install(input:BootstrapInput, bytes:Vec<u8>)->Result<serde_json::Value,String>{
     if !valid_team(&input.current_team){return Err("bootstrap_current_team_invalid".into());}
     inspect_archive(&bytes)?;
+    let shortcut_root=read_shortcut_root(&bytes)?;
     let mut ipa=tokio::task::block_in_place(||Ipa::read(bytes,&|_,_|{})).map_err(|_|"bootstrap_ipa_invalid")?;
     let bundles=ipa.bundles().map_err(|_|"bootstrap_ipa_invalid")?;
     if bundles.len()!=2{return Err("expected_app_and_widget".into());}
@@ -117,6 +138,7 @@ async fn install(input:BootstrapInput, bytes:Vec<u8>)->Result<serde_json::Value,
     let team_id=teams[0].id.clone();
     if team_id==input.current_team{return Err("bootstrap_same_team_use_renew".into());}
     let (host_id,widget_id)=target_ids(&team_id)?;
+    let shortcut_root=rewrite_shortcut_root(&shortcut_root,&host_id)?;
     let existing=services::installed_apps(&session).await.map_err(|_|"bootstrap_list_apps_failed")?;
     if existing.iter().any(|a|a.get("CFBundleIdentifier").and_then(Value::as_string)==Some(host_id.as_str())){
         return Err("bootstrap_already_installed".into());
@@ -151,7 +173,7 @@ async fn install(input:BootstrapInput, bytes:Vec<u8>)->Result<serde_json::Value,
         fresh.push((raw,e.min(cert_end)));
     }
     let plan=Plan{identity:Identity{leaf:cert.der,chain,key:cert.key,team:team_id,common_name},
-        bundles:plan_bundles,info_edits,add_files:vec![]};
+        bundles:plan_bundles,info_edits,add_files:vec![(SHORTCUT_ROOT.into(),shortcut_root)]};
     let signed=tokio::task::block_in_place(||{
         bundle::sign(&mut ipa,&plan,&mut |_,_|{})?;
         bundle::verify(&ipa)?;
@@ -216,4 +238,10 @@ mod tests{
         assert!(target_ids("../bad").is_err());
     }
     #[test] fn reject_non_ipa(){assert!(inspect_archive(b"not an ipa").is_err());}
+    #[test] fn shortcut_root_rewrites_only_identifier(){
+        let original=b"nlu:\n    bundleIdentifier: com.clearwidget.app\n    intents:\n";
+        assert_eq!(rewrite_shortcut_root(original,"com.clearwidget.app.A123456789").unwrap(),b"nlu:\n    bundleIdentifier: com.clearwidget.app.A123456789\n    intents:\n");
+        assert!(rewrite_shortcut_root(b"unrelated", "com.clearwidget.app.A123456789").is_err());
+        assert!(rewrite_shortcut_root(original,"com.other.app").is_err());
+    }
 }

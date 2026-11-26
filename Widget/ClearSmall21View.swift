@@ -20,10 +20,10 @@ enum Small21Navigation {
     private static let tapKey = "clearwidget.small21.tap.v1"
     private static let lock = NSLock()
     static var page: Small21Page { Small21Page(rawValue: UserDefaults.standard.integer(forKey: key)) ?? .calendar }
-    static func advance() {
+    static func select(_ next: Small21Page) {
         lock.lock(); defer { lock.unlock() }
         WidgetInteraction.mark()
-        UserDefaults.standard.set(page.next.rawValue, forKey: key)
+        UserDefaults.standard.set(next.rawValue, forKey: key)
         UserDefaults.standard.set(true, forKey: tapKey)
     }
     static func consumeTap() -> Bool {
@@ -35,10 +35,16 @@ enum Small21Navigation {
 }
 struct AdvanceSmall21: AppIntent {
     static var title: LocalizedStringResource = "Siguiente pantalla de Clear Small"
-    static var isDiscoverable = false
     static var openAppWhenRun = false
     static var allowedExecutionTargets: IntentExecutionTargets { .widgetKitExtension }
-    func perform() async throws -> some IntentResult { Small21Navigation.advance(); return .result() }
+    @Parameter(title: "Pantalla siguiente") var target: Int
+    init() {}
+    init(_ target: Small21Page) { self.target = target.rawValue }
+    func perform() async throws -> some IntentResult {
+        guard let page = Small21Page(rawValue: target) else { return .result() }
+        Small21Navigation.select(page)
+        return .result()
+    }
 }
 enum BatteryReader {
     private static let key = "clearwidget.battery.cache.v2"
@@ -134,7 +140,7 @@ struct ClearSmall21View: View {
                         }.accessibilityLabel("Sin acción configurada")
                     }
                 }.buttonStyle(.plain)
-                Button(intent: AdvanceSmall21()) {
+                Button(intent: AdvanceSmall21(page.next)) {
                     band(s, lower: true).contentShape(.interaction, Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel("Siguiente pantalla")
             }
