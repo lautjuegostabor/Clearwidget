@@ -5,6 +5,12 @@ import BackgroundTasks
 import UserNotifications
 import UniformTypeIdentifiers
 import CryptoKit
+import LocalAuthentication
+
+@_silgen_name("clearsign_prepare_key")
+private func nativePrepareKey() -> UnsafeMutablePointer<CChar>?
+@_silgen_name("clearsign_bootstrap")
+private func nativeBootstrap(_ directory: UnsafePointer<CChar>,_ data: UnsafePointer<UInt8>,_ count: Int) -> UnsafeMutablePointer<CChar>?
 
 @_silgen_name("clearsign_refresh")
 private func nativeRefresh(_ directory: UnsafePointer<CChar>,_ data: UnsafePointer<UInt8>,_ count: Int) -> UnsafeMutablePointer<CChar>?
@@ -14,6 +20,7 @@ private func nativeFree(_ pointer: UnsafeMutablePointer<CChar>)
 private struct EmbeddedProfile {
     let bundleID: String
     let uuid: String
+    let team: String
     let expires: Date
     let bytes: Data
     init?(_ bundle: Bundle) {
@@ -22,8 +29,8 @@ private struct EmbeddedProfile {
               let data=try? Data(contentsOf:url),data.count <= 1_000_000,
               let start=data.range(of:Data("<plist".utf8)),let end=data.range(of:Data("</plist>".utf8),in:start.lowerBound..<data.endIndex),
               let p=try? PropertyListSerialization.propertyList(from:data.subdata(in:start.lowerBound..<end.upperBound),format:nil) as? [String:Any],
-              let uuid=p["UUID"] as? String,let exp=p["ExpirationDate"] as? Date else {return nil}
-        bundleID=id;self.uuid=uuid;expires=exp;bytes=data
+              let uuid=p["UUID"] as? String,let team=(p["TeamIdentifier"] as? [String])?.first,let exp=p["ExpirationDate"] as? Date else {return nil}
+        bundleID=id;self.uuid=uuid;self.team=team;expires=exp;bytes=data
     }
     static func installed() -> [EmbeddedProfile] {
         guard let main=EmbeddedProfile(.main),let dir=Bundle.main.builtInPlugInsURL,
@@ -58,6 +65,21 @@ private enum ClearSignVault {
             guard SecItemAdd(q as CFDictionary,nil)==errSecSuccess else{throw ClearSignError(message:"No se pudo guardar la sesión en Keychain.")}
         } else if status != errSecSuccess {throw ClearSignError(message:"No se pudo actualizar Keychain.")}
     }
+    // Dedicated local signing key: never included in session export or migration.
+    static func bootstrapKey() throws -> Data {
+        var q=query;q[kSecAttrAccount as String]="clearsign-bootstrap-key-v1"
+        var read=q;read[kSecReturnData as String]=true;read[kSecMatchLimit as String]=kSecMatchLimitOne
+        var out:CFTypeRef?
+        let status=SecItemCopyMatching(read as CFDictionary,&out)
+        if status==errSecSuccess,let data=out as? Data, (512...4096).contains(data.count){return data}
+        guard status==errSecItemNotFound else{throw ClearSignError(message:"No se pudo leer la clave local de firma. No se generó otra.")}
+        guard let pointer=nativePrepareKey() else{throw ClearSignError(message:"No se pudo preparar la clave de firma.")}
+        defer{nativeFree(pointer)}
+        guard let data=Data(base64Encoded:String(cString:pointer)),(512...4096).contains(data.count) else{throw ClearSignError(message:"Clave local inválida.")}
+        q[kSecValueData as String]=data;q[kSecAttrAccessible as String]=kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        guard SecItemAdd(q as CFDictionary,nil)==errSecSuccess else{throw ClearSignError(message:"No se pudo conservar la clave de firma. No se solicitó certificado.")}
+        return data
+    }
     static func erase(){SecItemDelete(query as CFDictionary)}
     static func allowed(_ name:String)->Bool {
         if ["account.plist","pairing.plist","anisette-server","host-uuid","device-port"].contains(name){return true}
@@ -75,6 +97,10 @@ private enum ClearSignVault {
             guard size<=1_000_000 else{throw ClearSignError(message:"Exportación demasiado grande.")}
             result[item.lastPathComponent]=try Data(contentsOf:item)
         }
+        return try validateSession(result)
+    }
+    static func validateSession(_ result:[String:Data]) throws -> [String:Data] {
+        guard result.count<=64,result.allSatisfy({allowed($0.key) && $0.value.count<=256_000}),result.values.reduce(0,{$0+$1.count})<=1_000_000 else{throw ClearSignError(message:"Respaldo de sesión inválido.")}
         guard result["account.plist"] != nil,result["pairing.plist"] != nil,
               let route=result["anisette-server"].flatMap({String(data:$0,encoding:.utf8)}),
               route.hasPrefix("https://"),result.keys.contains(where:{$0.hasPrefix("anisette-") && $0.hasSuffix(".plist")})
@@ -91,6 +117,13 @@ private struct SignResult:Decodable {
     let ok:Bool
     let expiry:UInt64?
     let code:String?
+    let installedID:String?
+    let profilesVerified:Bool?
+}
+private struct BootstrapRequest:Encodable {
+    let currentTeam:String
+    let version:String
+    let build:String
 }
 private struct SignReceipt:Codable {
     let installation:String
@@ -159,8 +192,8 @@ private struct SignReceipt:Codable {
     func schedule(){
         guard registered, let taskID = Self.taskID else{return}
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier:taskID)
-        guard !setupActive,automatic,configured,hasReadbackReceipt(),let expiry else{return}
-        let earliest=max(Date().addingTimeInterval(60),expiry.addingTimeInterval(-5*86400))
+        guard !setupActive,automatic,configured,let expiry,expiry>Date() else{return}
+        let earliest=max(Date().addingTimeInterval(60),expiry.addingTimeInterval(-2*86400))
         let last=Date(timeIntervalSince1970:UserDefaults.standard.double(forKey:attemptKey))
         let req=BGProcessingTaskRequest(identifier:taskID)
         req.earliestBeginDate=max(earliest,last.addingTimeInterval(6*3600))
@@ -178,6 +211,40 @@ private struct SignReceipt:Codable {
             Task{await notifications()}
             return true
         }catch{status=error.localizedDescription;return false}
+    }
+    func importEncryptedSession(_ bytes:Data,secret:String) throws {
+        guard !running,!setupActive else{throw ClearSignError(message:"ClearSign está ocupado.")}
+        let files=try ClearSignVault.validateSession(ClearRecoveryExport.decryptSession(bytes:bytes,secret:secret))
+        try ClearSignVault.save(files)
+        configured=true
+        status="Sesión importada. Probá renovar ahora; todavía no se confirmó la firma."
+        update();schedule();Task{await notifications()}
+    }
+    func installForOtherTeam(_ ipa:Data) async {
+        guard !running,!setupActive,let data=ClearSignVault.load() else{return}
+        guard ipa.count>0,ipa.count<=16*1024*1024 else{status="IPA demasiado grande.";return}
+        let profiles=EmbeddedProfile.installed()
+        guard profiles.count==2,profiles[0].team==profiles[1].team,
+              let version=Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String,
+              let build=Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String else{status="No se pudo identificar la instalación actual.";return}
+        running=true
+        status="Preparando firma de la copia con la cuenta de ClearSign…"
+        defer{running=false;schedule();Task{await notifications()}}
+        do {
+            let request=try JSONEncoder().encode(BootstrapRequest(currentTeam:profiles[0].team,version:version,build:build))
+            let response=try await Task.detached(priority:.userInitiated){
+                let key=try ClearSignVault.bootstrapKey()
+                return try Self.runNative(data:data,request:request,ipa:ipa,signingKey:key)
+            }.value
+            guard response.result.ok,response.result.installedID != nil else{
+                status="Instalación no confirmada: "+Self.explanation(response.result.code)
+                return
+            }
+            try ClearSignVault.save(response.files)
+            status=response.result.profilesVerified==true
+                ? "Copia nueva instalada y perfiles encontrados. Abrí la copia nueva e importá tu respaldo cifrado; después probá renovar."
+                : "Copia nueva encontrada, perfiles no confirmados. Abrí la copia nueva e importá el respaldo; no repitas la instalación."
+        } catch{status="Instalación no confirmada: "+error.localizedDescription}
     }
     func recoveryExport() throws -> (ClearRecoveryDocument, String) {
         guard !running, !setupActive, let files=ClearSignVault.load() else { throw ClearSignError(message:"No hay sesión disponible.") }
@@ -227,7 +294,7 @@ private struct SignReceipt:Codable {
         guard profiles.count==2,let until=currentExpiry(profiles) else{status="No hay dos perfiles válidos para comprobar.";return false}
         guard until>Date() else{status="Firma vencida: recuperá la instalación con BariStore.";return false}
         if automaticRun {
-            guard automatic,hasReadbackReceipt(),until.timeIntervalSinceNow<=5*86400 else{return true}
+            guard automatic,until.timeIntervalSinceNow<=2*86400 else{return true}
             let last=UserDefaults.standard.double(forKey:attemptKey)
             guard Date().timeIntervalSince1970-last>=6*3600 else{return false}
         }
@@ -255,7 +322,7 @@ private struct SignReceipt:Codable {
             return true
         }catch{status="Renovación no confirmada: "+error.localizedDescription;return false}
     }
-    nonisolated private static func runNative(data:[String:Data],request:Data) throws -> (result:SignResult,files:[String:Data]){
+    nonisolated private static func runNative(data:[String:Data],request:Data,ipa:Data?=nil,signingKey:Data?=nil) throws -> (result:SignResult,files:[String:Data]){
         let fm=FileManager.default
         let root=try fm.url(for:.applicationSupportDirectory,in:.userDomainMask,appropriateFor:nil,create:true)
         var dir=root.appendingPathComponent("ClearSign-Transient",isDirectory:true)
@@ -269,9 +336,17 @@ private struct SignReceipt:Codable {
             try bytes.write(to:target,options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication])
             try fm.setAttributes([.posixPermissions:0o600],ofItemAtPath:target.path)
         }
+        if let ipa,let signingKey {
+            for (name,bytes) in [("bootstrap.ipa",ipa),("signing-key.der",signingKey)] {
+                let target=dir.appendingPathComponent(name)
+                try bytes.write(to:target,options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication])
+                try fm.setAttributes([.posixPermissions:0o600],ofItemAtPath:target.path)
+            }
+        }
         let pointer:UnsafeMutablePointer<CChar>?=dir.path.withCString{path in
             request.withUnsafeBytes{raw in
                 guard let p=raw.bindMemory(to:UInt8.self).baseAddress else{return nil}
+                if ipa != nil {return nativeBootstrap(path,p,request.count)}
                 return nativeRefresh(path,p,request.count)
             }
         }
@@ -292,7 +367,13 @@ private struct SignReceipt:Codable {
         case "profile_readback_missing":return "ninguno de los dos perfiles nuevos se encontró en el dispositivo."
         case "profile_readback_unavailable","profile_readback_refused","profile_readback_invalid":return "no se pudo comprobar la lista de perfiles del dispositivo."
         case "device_install_uncertain","device_install_unconfirmed","device_install_failed":return "instalación incierta; no se registró un nuevo vencimiento."
-        case "timeout":return "tiempo de espera agotado."
+        case "portal:team_not_authorized":return "la cuenta de ClearSign no pertenece al equipo que firmó esta copia. Usá la instalación con otra cuenta."
+        case "bootstrap_same_team_use_renew":return "esta cuenta ya pertenece al equipo de la instalación. Usá Renovar ahora."
+        case "bootstrap_select_single_team":return "la cuenta no tiene un único equipo seleccionable. No se solicitó certificado."
+        case "bootstrap_already_installed":return "ya existe una copia con esta cuenta. Abrila; no se reemplazó."
+        case "bootstrap_original_ipa_required","bootstrap_same_version_required":return "seleccioná el IPA original sin firmar de esta misma versión."
+        case "portal:certificate:apple_code=7460":return "Apple no permite otro certificado. No se revocó ninguno."
+        case "timeout","bootstrap_timeout":return "tiempo de espera agotado; comprobá si aparece la copia nueva antes de repetir."
         default:return code ?? "error sin detalle."
         }
     }
@@ -310,12 +391,81 @@ struct SigningPanel:View {
         Toggle("Renovación preventiva",isOn:$signing.automatic).disabled(!signing.configured || signing.running || signing.setupActive)
         Button("Migrar sesión local existente (opcional)"){importing=true}.disabled(signing.running || signing.setupActive)
         Button("Renovar ahora"){Task{_ = await signing.renew()}}.disabled(!signing.configured || signing.running || signing.setupActive)
+        ClearBootstrapPanel()
         Button("Habilitar avisos de vencimiento"){Task{await signing.enableAlerts()}}
         Button("Eliminar sesión de firma",role:.destructive){signing.forget()}.disabled(!signing.configured || signing.running || signing.setupActive)
-        Text("Requiere LocalDevVPN y sesión válida. iOS decide cuándo ejecuta tareas en segundo plano. Si vence, recuperá con BariStore. No se almacena contraseña ni clave privada de firma.")
+        Text("Requiere LocalDevVPN y sesión válida. iOS decide cuándo ejecuta tareas en segundo plano. Si vence, recuperá con BariStore. La clave privada de la instalación nueva se conserva exclusivamente en el Keychain de la copia que la preparó; no se exporta. No se guarda la contraseña.")
             .font(.caption).foregroundStyle(.secondary)
             .fileImporter(isPresented:$importing,allowedContentTypes:[.folder]){result in
                 switch result{case .success(let url):signing.importSession(url);case .failure:break}
             }
+    }
+}
+
+struct ClearBootstrapPanel:View {
+    @ObservedObject private var signing=ClearSign.shared
+    @State private var picking=false
+    @State private var importingBackup=false
+    @State private var ipa:Data?
+    @State private var backup:Data?
+    @State private var secret=""
+    @State private var confirmation=false
+    @State private var message=""
+    var body:some View {
+        Group {
+            Text("Instalación con otra cuenta").font(.headline)
+            Text("Conservá primero el respaldo cifrado de sesión y su clave por separado. Seleccioná el IPA original de esta misma versión. ClearSign puede registrar este iPhone, crear hasta dos App IDs y solicitar un certificado nuevo. Nunca revoca certificados ni elimina la copia actual.").font(.caption)
+            Button("Seleccionar IPA original"){picking=true}
+                .disabled(!signing.configured||signing.running||signing.setupActive)
+            if ipa != nil {
+                Button("Firmar e instalar copia nueva"){confirmation=true}
+                    .disabled(signing.running||signing.setupActive)
+                Button("Descartar IPA"){ipa=nil}
+            }
+            Button("Importar respaldo cifrado de sesión"){importingBackup=true}
+                .disabled(signing.running||signing.setupActive)
+            if backup != nil {
+                SecureField("Clave del respaldo",text:$secret).privacySensitive()
+                Button("Importar sesión"){
+                    defer{secret="";backup=nil}
+                    do{try signing.importEncryptedSession(backup!,secret:secret.trimmingCharacters(in:.whitespacesAndNewlines));message="Sesión importada."}
+                    catch{message="No se pudo importar el respaldo; no se reemplazó la sesión."}
+                }.disabled(secret.isEmpty||signing.running||signing.setupActive)
+            }
+            if !message.isEmpty{Text(message).font(.footnote)}
+        }
+        .fileImporter(isPresented:$picking,allowedContentTypes:[.data]){r in
+            do{
+                let url=try r.get()
+                guard url.pathExtension.lowercased()=="ipa" else{throw CocoaError(.fileReadCorruptFile)}
+                ipa=try Self.read(url,limit:16*1024*1024);message="IPA seleccionado."
+            }catch{ipa=nil;message="No se pudo leer el IPA original."}
+        }
+        .fileImporter(isPresented:$importingBackup,allowedContentTypes:[.data]){r in
+            do{backup=try Self.read(r.get(),limit:4*1024*1024);secret="";message="Respaldo seleccionado."}
+            catch{backup=nil;secret="";message="No se pudo leer el respaldo."}
+        }
+        .confirmationDialog("¿Instalar ClearWidget con la cuenta de ClearSign?",isPresented:$confirmation,titleVisibility:.visible){
+            Button("Autorizar nueva firma"){
+                Task{@MainActor in
+                    guard let data=ipa else{return}
+                    do{
+                        guard try await LAContext().evaluatePolicy(.deviceOwnerAuthentication,localizedReason:"Autorizar certificado e instalación local de ClearWidget") else{return}
+                        ipa=nil
+                        await signing.installForOtherTeam(data)
+                    }catch{message="No se autorizó la instalación."}
+                }
+            }
+            Button("Cancelar",role:.cancel){}
+        }message:{Text("Confirmá que guardaste el respaldo cifrado. Apple puede consumir cupos de certificado y App IDs. La copia actual no se elimina.")}
+    }
+    private static func read(_ url:URL,limit:Int)throws->Data {
+        let scoped=url.startAccessingSecurityScopedResource()
+        defer{if scoped{url.stopAccessingSecurityScopedResource()}}
+        let v=try url.resourceValues(forKeys:[.isRegularFileKey,.fileSizeKey])
+        guard v.isRegularFile==true,let size=v.fileSize,size>0,size<=limit else{throw CocoaError(.fileReadTooLarge)}
+        let d=try Data(contentsOf:url)
+        guard d.count<=limit else{throw CocoaError(.fileReadTooLarge)}
+        return d
     }
 }

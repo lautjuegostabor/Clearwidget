@@ -16,7 +16,19 @@ struct ClearRecoveryDocument: FileDocument {
 }
 
 struct ClearRecoveryExport {
-    private struct Payload: Encodable { let version: Int; let request: Data; let files: [String:Data] }
+    private struct Payload: Codable { let version: Int; let request: Data; let files: [String:Data] }
+    static func decryptSession(bytes:Data,secret:String)throws->[String:Data] {
+        let header=Data("CLEARRECOVERY1".utf8)
+        guard bytes.count<=4*1024*1024,bytes.starts(with:header),
+              let key=Data(base64Encoded:secret),key.count==32 else{throw CocoaError(.fileReadCorruptFile)}
+        let combined=bytes.dropFirst(header.count)
+        guard combined.count>=28 else{throw CocoaError(.fileReadCorruptFile)}
+        let box=try AES.GCM.SealedBox(combined:Data(combined))
+        let plain=try AES.GCM.open(box,using:SymmetricKey(data:key),authenticating:header)
+        let payload=try JSONDecoder().decode(Payload.self,from:plain)
+        guard payload.version==1 else{throw CocoaError(.fileReadCorruptFile)}
+        return payload.files
+    }
     static func encrypt(request: Data, files: [String:Data]) throws -> (ClearRecoveryDocument, String) {
         let data = try JSONEncoder().encode(Payload(version: 1, request: request, files: files))
         let key = SymmetricKey(size: .bits256)

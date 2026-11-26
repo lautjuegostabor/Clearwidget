@@ -9,6 +9,7 @@ rm -rf "$UP"; mkdir -p "$UP"
 cp -R "$ROOT/Vendor/BariStore/." "$UP/"
 python3 "$ROOT/Signing/patch_renewal_vendor.py" "$UP"
 cp "$ROOT/Signing/lib.rs" "$UP/src/lib.rs"
+printf '\n[features]\nclear-bootstrap = []\n' >> "$UP/Cargo.toml"
 python3 - "$UP/src/lib.rs" <<'PY'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]);s=p.read_text();s=s.replace('mod setup;\n','')

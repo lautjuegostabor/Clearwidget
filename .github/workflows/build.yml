@@ -2,7 +2,7 @@ name: Build ClearWidget IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration, v0.5.4-integration, v0.5.5-integration, v0.5.6-integration]
+    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration, v0.5.4-integration, v0.5.5-integration, v0.5.6-integration, v0.5.7-integration]
 permissions:
   contents: read
 concurrency:
@@ -97,20 +97,20 @@ jobs:
           for path, bundle in zip(sys.argv[1:], ["com.clearwidget.app", "com.clearwidget.app.widget"]):
               p = plistlib.loads((pathlib.Path(path) / "Info.plist").read_bytes())
               assert p["CFBundleIdentifier"] == bundle, p
-              assert p["CFBundleShortVersionString"] == "0.5.6", p
-              assert p["CFBundleVersion"] == "12", p
+              assert p["CFBundleShortVersionString"] == "0.5.7", p
+              assert p["CFBundleVersion"] == "13", p
               assert p["CFBundleDisplayName"] == chr(0x2800), p
           print("Verified both final bundle identifiers, display names and versions")
           PY
           python3 Tools/check_shortcut_metadata.py "$app" "$ext"
           mkdir -p Payload
           cp -R "$app" Payload/
-          zip -qry ClearWidget-v0.5.6.ipa Payload
-          unzip -t ClearWidget-v0.5.6.ipa
+          zip -qry ClearWidget-v0.5.7.ipa Payload
+          unzip -t ClearWidget-v0.5.7.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: ClearWidget-v0.5.6
-          path: ClearWidget-v0.5.6.ipa
+          name: ClearWidget-v0.5.7
+          path: ClearWidget-v0.5.7.ipa
           if-no-files-found: error
 
   recovery:
@@ -141,6 +141,6 @@ jobs:
           file .clearrecovery-build/output/clearrecovery
       - uses: actions/upload-artifact@v4
         with:
-          name: ClearRecovery-v0.5.6-experimental
+          name: ClearRecovery-v0.5.7-experimental
           path: .clearrecovery-build/output/
           if-no-files-found: error

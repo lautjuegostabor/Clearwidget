@@ -1,6 +1,6 @@
 //! Native iOS static library adapter to the pinned MIT BariStore modules.
-//! Renewal only: no password login, certificate issuance/revocation, App ID
-//! creation, install of binaries, or modification of unrelated applications.
+//! Profile-only unattended renewal. Explicit foreground bootstrap is separate,
+//! limited to ClearWidget, and never revokes certificates or removes apps.
 #[macro_export]
 macro_rules! logf { ($($arg:tt)*) => {{}}; }
 mod apple;
@@ -12,6 +12,10 @@ mod siphash;
 mod srp;
 mod state;
 mod setup;
+#[cfg(any(target_os="ios",feature="clear-bootstrap"))]
+mod sign;
+#[cfg(any(target_os="ios",feature="clear-bootstrap"))]
+mod bootstrap;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use plist::{Dictionary,Value};
