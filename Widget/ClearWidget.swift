@@ -133,17 +133,27 @@ private struct Entry: TimelineEntry {
 }
 
 private struct Provider: AppIntentTimelineProvider {
-    private func entry(at now: Date, configuration: ClearConfiguration, family: WidgetFamily, battery: Int? = nil) -> Entry {
+    private func entry(at now: Date, configuration: ClearConfiguration, family: WidgetFamily, cache: ForecastCache?, battery: Int? = nil) -> Entry {
         let page = Store.page
-        let cache = ForecastDisk.cached
+        let smallPage = Small21Navigation.page
+        let small = family == .systemSmall
+        let animated = small && configuration.design == .animated
+        let needsMediumWeather = !small && page == .weather
+        let needsCurrent = small && (configuration.design == .clear || (animated && smallPage == .weather))
+        let glass: GlassForecast
+        if small && configuration.design == .glass {
+            glass = cache?.glassForecast(at: now) ?? .empty
+        } else if needsCurrent {
+            glass = GlassForecast(current: cache?.reading(at: now) ?? .empty, hours: [])
+        } else { glass = .empty }
         return Entry(date: now, page: page,
-            weather: family == .systemMedium && page == .weather ? cache?.reading(at: now) ?? .empty : .empty,
-            glass: family == .systemSmall ? cache?.glassForecast(at: now) ?? .empty : .empty,
+            weather: needsMediumWeather ? cache?.reading(at: now) ?? .empty : .empty,
+            glass: glass,
             configuration: configuration,
-            smallPage: Small21Navigation.page,
+            smallPage: smallPage,
             battery: battery,
-            activity: family == .systemSmall && configuration.design == .animated ? ActivityDisk.read(source: configuration.activityProvider.key(custom: configuration.customActivitySource), at: now) : nil,
-            todayLow: cache?.todayMinimum(at: now),
+            activity: animated && smallPage == .activity ? ActivityDisk.read(source: configuration.activityProvider.key(custom: configuration.customActivitySource), at: now) : nil,
+            todayLow: animated && smallPage == .weather ? cache?.todayMinimum(at: now) : nil,
             weatherSource: cache?.source)
     }
     func placeholder(in context: Context) -> Entry {
@@ -151,19 +161,23 @@ private struct Provider: AppIntentTimelineProvider {
     }
     func snapshot(for configuration: ClearConfiguration, in context: Context) async -> Entry {
         let battery = context.family == .systemSmall && configuration.design == .animated && !context.isPreview ? await BatteryReader.level() : nil
-        return entry(at: Date(), configuration: configuration, family: context.family, battery: battery)
+        let now = Date()
+        return entry(at: now, configuration: configuration, family: context.family, cache: ForecastDisk.cached(at: now), battery: battery)
     }
     func timeline(for configuration: ClearConfiguration, in context: Context) async -> Timeline<Entry> {
+        let started = ProcessInfo.processInfo.systemUptime
         let now = Date()
-        let tap = !context.isPreview && WidgetInteraction.recent(at: now)
+        let mark = context.isPreview ? nil : WidgetInteraction.current(at: now)
+        let tap = mark != nil
         if !context.isPreview && !tap {
-            ShortcutBridge.consumeInWidget(at: now)
             await WeatherService.shared.refreshIfDue(at: now)
         }
         // Read the latest state after any scheduled network request, never restore an old page.
         let date = Date()
         let midnight = Calendar.autoupdatingCurrent.dateInterval(of: .day, for: date)?.end ?? date.addingTimeInterval(3600)
-        let refresh = tap ? min(ForecastDisk.nextRefresh(at: date), date.addingTimeInterval(60)) : ForecastDisk.nextRefresh(at: date)
+        let cache = ForecastDisk.cached(at: date)
+        let planned = ForecastDisk.nextRefresh(at: date, cache: cache)
+        let refresh = tap ? min(planned, date.addingTimeInterval(60)) : planned
         let nextHour = Date(timeIntervalSince1970: (floor(date.timeIntervalSince1970 / 3600) + 1) * 3600)
         let next = context.family == .systemSmall ? min(refresh, nextHour) : min(midnight, refresh)
         var battery: Int?
@@ -171,7 +185,9 @@ private struct Provider: AppIntentTimelineProvider {
             if tap { battery = BatteryReader.cached(at: date) }
             else { battery = await BatteryReader.level() }
         }
-        return Timeline(entries: [entry(at: date, configuration: configuration, family: context.family, battery: battery)], policy: .after(next))
+        let timeline = Timeline(entries: [entry(at: date, configuration: configuration, family: context.family, cache: cache, battery: battery)], policy: .after(next))
+        if let mark { WidgetInteraction.finish(mark, started: started, ended: ProcessInfo.processInfo.systemUptime) }
+        return timeline
     }
 }
 

@@ -186,25 +186,23 @@ for name, remote in [
     assert im.width == im.height and 80 <= im.width <= 2000, (name,im.size)
     print(name, im.size, hashlib.sha256(im.tobytes()).hexdigest())
     write(name, im)
+    expected = {
+        "Small21Navigator": "bf1184aafcf08541ccb180a0d00ab4b1fab10b690d51cdb0aa4298dc0ad5aa44",
+        "Small21Activity": "c0787505dee392cfe4cc971dfaef83a4175198848b8672cb58b68c2ccd30a626",
+        "Small21Weather": "eafaddaca8a34715b618a2f34cc3f524a9f367838ee293ec31cfdf4b5ca87f7c",
+        "Small21Calendar": "6e334827972428b734fa3947bdd654d8637ac017473047f7f2889c4a8c105fac",
+    }
+    assert im.size == (354,354) and hashlib.sha256(im.tobytes()).hexdigest() == expected[name]
+    cut = round(im.height * 1000 / 1600)
+    upper, lower = im.crop((0,0,im.width,cut)), im.crop((0,cut,im.width,im.height))
+    reconstructed = Image.new("RGBA",im.size)
+    reconstructed.paste(upper,(0,0)); reconstructed.paste(lower,(0,cut))
+    assert reconstructed.tobytes() == im.tobytes()
+    write(name+"Upper",upper); write(name+"Lower",lower)
     if name == "Small21Navigator":
-        # Integral source-pixel bounds; widget hit target is the matching circular area.
-        w,h = im.size
-        box = (round(w*1070/1600),round(h*1070/1600),round(w*1490/1600),round(h*1490/1600))
-        button = im.crop(box)
-        remainder = im.copy()
-        remainder.paste((0,0,0,0),box)
-        reconstructed = remainder.copy()
-        reconstructed.paste(button,box[:2])
-        assert reconstructed.tobytes() == im.tobytes()
-        write("Small21NavigatorButton",button)
-        write("Small21NavigatorRemainder",remainder)
-        # Exact normalized coordinates for the actual source pixel boundaries.
-        Path("Widget/Small21NavigatorGeometry.swift").write_text(
+        Path("Widget/Small21BandGeometry.swift").write_text(
             "import CoreGraphics\n"
-            "enum Small21NavigatorGeometry {\n"
-            f"    static let width: CGFloat = {(box[2]-box[0])*1600/w:.12f}\n"
-            f"    static let height: CGFloat = {(box[3]-box[1])*1600/h:.12f}\n"
-            f"    static let centerX: CGFloat = {(box[0]+box[2])*800/w:.12f}\n"
-            f"    static let centerY: CGFloat = {(box[1]+box[3])*800/h:.12f}\n"
+            "enum Small21BandGeometry {\n"
+            f"    static let upperHeight: CGFloat = {1600*cut/im.height:.12f}\n"
             "}\n")
-        print("Small21 navigator: source RGBA reconstructs exactly from both regions")
+    print(name, "upper/lower bands reconstruct exact original RGBA")

@@ -121,66 +121,53 @@ struct ClearSmall21View: View {
     var body: some View {
         GeometryReader { g in
             let s = min(g.size.width, g.size.height) / 1600
-            ZStack(alignment: .topLeading) {
-                ZStack { informationAction(s).id(page).transition(.blurReplace) }
-                    .frame(width: 1600*s, height: 1600*s)
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.28), value: page)
-                // Complementary assets are split at build time, not on each tap.
-                Image("Small21NavigatorRemainder").resizable().widgetAccentedRenderingMode(.fullColor)
-                    .frame(width: 1600*s,height: 1600*s)
-                    .allowsHitTesting(false).accessibilityHidden(true)
-                Button(intent: AdvanceSmall21()) {
-                    Image("Small21NavigatorButton").resizable().widgetAccentedRenderingMode(.fullColor)
-                        .frame(width: Small21NavigatorGeometry.width*s,height: Small21NavigatorGeometry.height*s)
-                        .contentShape(.interaction, Circle())
+            // Original Widgy Gesture layer: full width, y=1000, height=600.
+            VStack(spacing: 0) {
+                Group {
+                    if let shortcut {
+                        Button(intent: RunSystemShortcutIntent(shortcut: shortcut)) {
+                            band(s, lower: false).contentShape(.interaction, Rectangle())
+                        }.accessibilityLabel("Abrir acción de \(subtitle)")
+                    } else {
+                        Button(intent: StayOnGlassSmall()) {
+                            band(s, lower: false).contentShape(.interaction, Rectangle())
+                        }.accessibilityLabel("Sin acción configurada")
+                    }
                 }.buttonStyle(.plain)
-                    .position(x: Small21NavigatorGeometry.centerX*s,y: Small21NavigatorGeometry.centerY*s)
-                    .accessibilityLabel("Siguiente pantalla")
-            }.frame(width: 1600*s,height: 1600*s)
-                .frame(maxWidth: .infinity,maxHeight: .infinity)
+                Button(intent: AdvanceSmall21()) {
+                    band(s, lower: true).contentShape(.interaction, Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel("Siguiente pantalla")
+            }
+            .frame(width: 1600*s,height: 1600*s)
+            .frame(maxWidth: .infinity,maxHeight: .infinity)
         }
         .foregroundStyle(.white)
         .containerBackground(for: .widget) { Color.clear }
     }
-    // Render real artwork as the label, with non-overlapping action areas.
-    private func informationAction(_ s: CGFloat) -> some View {
-        ZStack(alignment: .topLeading) {
-            Group {
-                if let shortcut {
-                    Button(intent: RunSystemShortcutIntent(shortcut: shortcut)) {
-                        upperInformation(s)
-                    }.accessibilityLabel("Abrir acción de \(subtitle)")
-                } else {
-                    Button(intent: StayOnGlassSmall()) {
-                        upperInformation(s)
-                    }.accessibilityLabel("Sin acción configurada")
+    private func band(_ s: CGFloat, lower: Bool) -> some View {
+        let suffix = lower ? "Lower" : "Upper"
+        let origin = lower ? Small21BandGeometry.upperHeight : 0
+        let height = lower ? 1600 - Small21BandGeometry.upperHeight : Small21BandGeometry.upperHeight
+        return ZStack(alignment: .topLeading) {
+            ZStack {
+                ZStack(alignment: .topLeading) {
+                    Image(page.artwork + suffix).resizable().widgetAccentedRenderingMode(.fullColor)
+                        .frame(width: 1600*s,height: height*s).accessibilityHidden(true)
+                    if lower {
+                        text(foot,size: 125,weight: .medium,opacity: 0.70,width: 710,height: 168,x: page == .activity ? 240 : 440,y: 1190-origin,s: s)
+                    } else {
+                        text(subtitle,size: 135,weight: .medium,opacity: 0.60,width: 1200,height: 180,x: 220,y: 340,s: s)
+                        text(value,size: 310,weight: .bold,opacity: 1,width: 1200,height: 382,x: 220,y: 520,s: s)
+                    }
                 }
-            }.buttonStyle(.plain)
-                .frame(width: 1600*s,height: 1020*s)
-                .position(x: 800*s,y: 510*s)
-            information(s).frame(width: 1600*s,height: 1600*s)
-                .frame(width: 1600*s,height: 580*s,alignment: .bottom).clipped()
-                .position(x: 800*s,y: 1310*s)
-                .allowsHitTesting(false)
-        }.frame(width: 1600*s,height: 1600*s)
-    }
-    private func upperInformation(_ s: CGFloat) -> some View {
-        information(s).frame(width: 1600*s,height: 1600*s)
-            .frame(width: 1600*s,height: 1020*s,alignment: .top).clipped()
-            .contentShape(.interaction, Rectangle())
-    }
-    @ViewBuilder private func information(_ s: CGFloat) -> some View {
-        ZStack(alignment: .topLeading) {
-            Image(page.artwork).resizable().widgetAccentedRenderingMode(.fullColor)
-                .frame(width: 1600*s,height: 1600*s)
-                .allowsHitTesting(false).accessibilityHidden(true)
-            ZStack(alignment: .topLeading) {
-                text(subtitle,size: 135,weight: .medium,opacity: 0.60,width: 1200,height: 180,x: 220,y: 340,s: s)
-                text(value,size: 310,weight: .bold,opacity: 1,width: 1200,height: 382,x: 220,y: 520,s: s)
-                text(foot,size: 125,weight: .medium,opacity: 0.70,width: 710,height: 168,x: page == .activity ? 240 : 440,y: 1190,s: s)
-            }.frame(width: 1600*s,height: 1600*s).allowsHitTesting(false)
-
-        }
+                .frame(width: 1600*s,height: height*s)
+                .id(page).transition(.blurReplace)
+            }
+            .frame(width: 1600*s,height: height*s)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.28), value: page)
+            Image("Small21Navigator" + suffix).resizable().widgetAccentedRenderingMode(.fullColor)
+                .frame(width: 1600*s,height: height*s).accessibilityHidden(true)
+        }.frame(width: 1600*s,height: height*s)
     }
     private func text(_ value: String,size: CGFloat,weight: Font.Weight,opacity: Double,
                       width: CGFloat,height: CGFloat,x: CGFloat,y: CGFloat,s: CGFloat) -> some View {

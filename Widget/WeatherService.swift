@@ -154,7 +154,10 @@ enum ForecastDisk {
         if valid(apple, age: 6 * 3600) { return apple }
         return nil
     }
-    static var cached: ForecastCache? { select(apple: apple, fallback: fallback, location: location, at: Date()) }
+    static func cached(at now: Date) -> ForecastCache? {
+        select(apple: apple, fallback: fallback, location: location, at: now)
+    }
+    static var cached: ForecastCache? { cached(at: Date()) }
     static func updateLocation(_ new: WeatherLocation) throws {
         guard new.valid else { return }
         if let old = location {
@@ -170,8 +173,9 @@ enum ForecastDisk {
     static func save(_ cache: ForecastCache, key: String) throws {
         UserDefaults.standard.set(try JSONEncoder().encode(cache), forKey: key)
     }
-    static func nextRefresh(at now: Date) -> Date {
-        if let cache = cached, (0..<ttl).contains(now.timeIntervalSince(cache.fetchedAt)) {
+    static func nextRefresh(at now: Date) -> Date { nextRefresh(at: now, cache: cached(at: now)) }
+    static func nextRefresh(at now: Date, cache: ForecastCache?) -> Date {
+        if let cache, (0..<ttl).contains(now.timeIntervalSince(cache.fetchedAt)) {
             return max(now.addingTimeInterval(60), cache.fetchedAt.addingTimeInterval(ttl))
         }
         let last = UserDefaults.standard.double(forKey: attemptKey)
@@ -196,6 +200,10 @@ actor WeatherService {
 
     // Scheduled fallback; navigation remains cache-only. Apple ingestion is independent.
     func refreshIfDue(at now: Date) async {
+        if let position = ForecastDisk.location,
+           (0..<300).contains(now.timeIntervalSince(position.observedAt)),
+           ForecastDisk.fresh(ForecastDisk.apple, at: now, maxAge: ForecastDisk.appleFreshness) ||
+           ForecastDisk.fresh(ForecastDisk.fallback, at: now, maxAge: ForecastDisk.ttl) { return }
         if inFlight {
             await withCheckedContinuation { waiters.append($0) }
             return

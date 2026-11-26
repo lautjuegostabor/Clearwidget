@@ -7,6 +7,7 @@ mkdir -p "$DEST"
 python3 "$ROOT/Tools/verify_vendor.py" "$ROOT/Vendor"
 rm -rf "$UP"; mkdir -p "$UP"
 cp -R "$ROOT/Vendor/BariStore/." "$UP/"
+python3 "$ROOT/Signing/patch_renewal_vendor.py" "$UP"
 cp "$ROOT/Signing/lib.rs" "$UP/src/lib.rs"
 python3 - "$UP/src/lib.rs" <<'PY'
 import pathlib,sys

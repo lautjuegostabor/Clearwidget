@@ -82,7 +82,7 @@ fn run()->Result<(),String>{
     // No private key, no certificate requests/revocations, no App ID creation.
     // Does not depend on the main app running. The same conservative renew
     // adapter checks both profiles before installing either.
-    let expiry=clearsign::recover_profiles(temp.0.to_str().ok_or("Invalid path")?,&request).map_err(str::to_owned)?;
+    let expiry=clearsign::recover_profiles(temp.0.to_str().ok_or("Invalid path")?,&request)?;
     println!("Device service accepted both profiles; reported minimum expiry (Unix): {expiry}");
     println!("Verify in iOS that the app and widget open. A receipt alone does not prove recovery.");
     Ok(())

@@ -114,7 +114,7 @@ private struct SignReceipt:Codable {
         didSet {UserDefaults.standard.set(automatic,forKey:"clearsign.auto");schedule();Task{await notifications()}}
     }
     private var registered=false
-    private let receiptKey="clearsign.receipt"
+    private let receiptKey="clearsign.receipt.readback.v2"
     private let attemptKey="clearsign.attempt"
     private let alertIDs=["clearsign.warning48","clearsign.warning24"]
     private init(){automatic=UserDefaults.standard.bool(forKey:"clearsign.auto");update()}
@@ -127,6 +127,12 @@ private struct SignReceipt:Codable {
         if let d=UserDefaults.standard.data(forKey:receiptKey),let r=try? JSONDecoder().decode(SignReceipt.self,from:d),
            r.installation==installation(profiles){return max(embedded,r.expiry)}
         return embedded
+    }
+    private func hasReadbackReceipt() -> Bool {
+        let profiles=EmbeddedProfile.installed()
+        guard profiles.count==2, let d=UserDefaults.standard.data(forKey:receiptKey),
+              let r=try? JSONDecoder().decode(SignReceipt.self,from:d) else{return false}
+        return r.installation==installation(profiles) && r.expiry>Date()
     }
     func update(){
         configured=ClearSignVault.load() != nil
@@ -153,7 +159,7 @@ private struct SignReceipt:Codable {
     func schedule(){
         guard registered, let taskID = Self.taskID else{return}
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier:taskID)
-        guard !setupActive,automatic,configured,let expiry else{return}
+        guard !setupActive,automatic,configured,hasReadbackReceipt(),let expiry else{return}
         let earliest=max(Date().addingTimeInterval(60),expiry.addingTimeInterval(-5*86400))
         let last=Date(timeIntervalSince1970:UserDefaults.standard.double(forKey:attemptKey))
         let req=BGProcessingTaskRequest(identifier:taskID)
@@ -221,7 +227,7 @@ private struct SignReceipt:Codable {
         guard profiles.count==2,let until=currentExpiry(profiles) else{status="No hay dos perfiles válidos para comprobar.";return false}
         guard until>Date() else{status="Firma vencida: recuperá la instalación con BariStore.";return false}
         if automaticRun {
-            guard automatic,until.timeIntervalSinceNow<=5*86400 else{return true}
+            guard automatic,hasReadbackReceipt(),until.timeIntervalSinceNow<=5*86400 else{return true}
             let last=UserDefaults.standard.double(forKey:attemptKey)
             guard Date().timeIntervalSince1970-last>=6*3600 else{return false}
         }
@@ -235,17 +241,17 @@ private struct SignReceipt:Codable {
             let response=try await Task.detached(priority:.utility){
                 try Self.runNative(data:data,request:encoded)
             }.value
-            // Keep a renewed token/anisette state, never log or expose it.
-            try ClearSignVault.save(response.files)
+            // Preserve the prior session on failure.
             guard response.result.ok,let e=response.result.expiry else{
                 status="Renovación no confirmada: "+Self.explanation(response.result.code)
                 return false
             }
+            try ClearSignVault.save(response.files)
             let new=Date(timeIntervalSince1970:Double(e))
             guard new>until else{status="El vencimiento no se extendió.";return false}
             let receipt=SignReceipt(installation:installation(profiles),expiry:new,at:Date())
             UserDefaults.standard.set(try JSONEncoder().encode(receipt),forKey:receiptKey)
-            expiry=new;status="Ambos perfiles aceptados por el servicio del dispositivo."
+            expiry=new;status="Ambos perfiles nuevos comprobados en el dispositivo. Vigencia de ejecución aún sujeta a iOS."
             return true
         }catch{status="Renovación no confirmada: "+error.localizedDescription;return false}
     }
@@ -277,11 +283,15 @@ private struct SignReceipt:Codable {
     }
     private static func explanation(_ code:String?)->String{
         switch code{
+        case "renewal_identity_missing","renewal_identity_rejected":return "identidad Anisette no disponible o rechazada; sesión original conservada."
         case "session_unavailable","session_route_invalid":return "sesión de Apple no disponible. Requiere configuración local explícita."
         case "vpn_or_pairing_unavailable","pairing_missing":return "LocalDevVPN o emparejamiento no disponible."
         case "certificate_changed","entitlements_changed","profile_identity_mismatch","device_mismatch":return "el perfil no coincide con la firma instalada; no se instaló."
         case "profile_not_extended":return "Apple no entregó una extensión del vencimiento."
-        case "device_install_failed":return "el dispositivo rechazó al menos un perfil; no se confirma la renovación."
+        case "profile_readback_partial":return "renovación parcial: solo uno de los dos perfiles nuevos está en el dispositivo."
+        case "profile_readback_missing":return "ninguno de los dos perfiles nuevos se encontró en el dispositivo."
+        case "profile_readback_unavailable","profile_readback_refused","profile_readback_invalid":return "no se pudo comprobar la lista de perfiles del dispositivo."
+        case "device_install_uncertain","device_install_unconfirmed","device_install_failed":return "instalación incierta; no se registró un nuevo vencimiento."
         case "timeout":return "tiempo de espera agotado."
         default:return code ?? "error sin detalle."
         }

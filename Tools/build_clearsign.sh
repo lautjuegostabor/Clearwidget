@@ -9,6 +9,7 @@ python3 "$ROOT/Tools/verify_vendor.py" "$ROOT/Vendor"
 rm -rf "$UP"
 mkdir -p "$UP"
 cp -R "$ROOT/Vendor/BariStore/." "$UP/"
+python3 "$ROOT/Signing/patch_renewal_vendor.py" "$UP"
 # Build a static library, not the Open Minis executable or UI. Only the listed
 # modules are reachable. Preserve original MIT attribution.
 cp "$ROOT/Signing/lib.rs" "$UP/src/lib.rs"

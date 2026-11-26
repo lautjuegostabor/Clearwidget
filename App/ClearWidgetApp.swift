@@ -63,15 +63,8 @@ struct ClearWidgetApp: App {
                             ClearWidgetShortcuts.updateAppShortcutParameters()
                             shortcutsStatus = "Registro solicitado a iOS; no confirma que Atajos las muestre."
                         }
-                        Button("Probar comunicación con widgets") {
-                            do { try ShortcutBridge.beginProbe(); shortcutsStatus = "Prueba enviada. Consultá el resultado cuando iOS actualice el widget." }
-                            catch { shortcutsStatus = error.localizedDescription }
-                            WidgetCenter.shared.reloadTimelines(ofKind: "ClearWidget")
-                        }
-                        Button("Consultar diagnóstico") {
-                            do { shortcutsStatus = try ShortcutBridge.diagnostic() }
-                            catch { shortcutsStatus = error.localizedDescription }
-                        }
+                        Link("Abrir Atajos para ejecutar el diagnóstico", destination: URL(string: "shortcuts://")!)
+                        Text("Diagnóstico ClearWidget debe indicar que la acción se ejecutó en la extensión. También muestra los tiempos de la última navegación; no necesita un puente Keychain.").font(.caption)
                         Text(shortcutsStatus).font(.footnote)
                     }
                     Section("Firma") { SigningPanel(); ClearSignSetupPanel(); ClearRecoveryExportPanel() }
