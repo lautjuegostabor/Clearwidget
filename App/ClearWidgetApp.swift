@@ -9,8 +9,8 @@ struct ClearWidgetApp: App {
             NavigationStack {
                 Form {
                     Section("ClearWidget") {
-                        Text("En la galería, elegí el tamaño pequeño (Glass Small 7) o mediano (Clear Medium) de ClearWidget. Mantené pulsado el widget y elegí Editar widget.")
-                        Text("Acción principal configura el panel de inicio del mediano o todo el pequeño. Abrir Clima y Abrir Calendario solo se utilizan en el mediano. Sin asignar no se abre ninguna app.")
+                        Text("En la galería, elegí el tamaño pequeño o mediano. En Editar widget, el pequeño permite elegir Glass Small 7 o Clear Small. El mediano conserva Clear Medium.")
+                        Text("Acción principal configura el panel de inicio del mediano o todo el pequeño. Solo el mediano ofrece las acciones adicionales de Clima y Calendario. Sin asignar no se abre ninguna app.")
                         Text("Elegí la apariencia Transparente de iOS para el cristal nativo.")
                     }
                     Section("Diagnóstico de widgets") {
@@ -45,7 +45,7 @@ struct ClearWidgetApp: App {
                         Link("Modelo ECMWF", destination: URL(string: "https://www.ecmwf.int/")!)
                     }
                     Section("Diseño") {
-                        Text("Referencias Clear Medium y Glass Small 7 de Lokki. Uso personal. No distribuir los recursos originales sin autorización.")
+                        Text("Referencias Clear Medium, Glass Small 7 y Clear Small de Lokki. Uso personal. No distribuir los recursos originales sin autorización.")
                     }
                 }.navigationTitle("ClearWidget")
             }

@@ -73,3 +73,24 @@ extension ForecastCache {
         return GlassForecast(current: current, hours: rows)
     }
 }
+
+enum ClearCondition {
+    // f3...r3 are the exact shared 200x200 Clear Medium / Clear Small assets.
+    static func asset(_ code: Int?, day: Bool) -> String? {
+        guard let code else { return nil }
+        let index: Int
+        switch code {
+        case 0: index = day ? 0 : 8
+        case 1: index = day ? 1 : 9
+        case 2: index = day ? 2 : 10
+        case 3: index = day ? 2 : 10
+        case 45, 48: index = 7
+        case 51...57, 61...67: index = day ? 4 : 11
+        case 71...77, 85, 86: index = 6
+        case 80...82: index = day ? 3 : 11
+        case 95...99: index = 5
+        default: return nil
+        }
+        return "ClearWeather\(index)"
+    }
+}

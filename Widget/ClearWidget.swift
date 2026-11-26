@@ -71,12 +71,35 @@ struct StayOnWidget: AppIntent {
     }
 }
 
+enum SmallDesign: String, AppEnum {
+    case glass, clear
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Diseño"
+    static var caseDisplayRepresentations: [SmallDesign: DisplayRepresentation] = [
+        .glass: "Glass Small 7", .clear: "Clear Small"
+    ]
+}
+
 struct ClearConfiguration: WidgetConfigurationIntent {
     static var title: LocalizedStringResource = "Acciones de ClearWidget"
     static var description: IntentDescription = "Elegí las aplicaciones que abrirá cada pantalla."
     @Parameter(title: "Acción principal") var home: SystemShortcut?
     @Parameter(title: "Abrir Clima") var weather: SystemShortcut?
     @Parameter(title: "Abrir Calendario") var calendar: SystemShortcut?
+    @Parameter(title: "Diseño", default: .glass) var design: SmallDesign
+    static var parameterSummary: some ParameterSummary {
+        When(widgetFamily: .equalTo, .systemSmall) {
+            Summary {
+                \.$design
+                \.$home
+            }
+        } otherwise: {
+            Summary {
+                \.$home
+                \.$weather
+                \.$calendar
+            }
+        }
+    }
     init() {}
 }
 
@@ -293,28 +316,16 @@ private struct CalendarPage: View {
 }
 
 private struct WeatherGlyph: View {
-    let symbol: String
+    let weather: WeatherReading
     let s: CGFloat
     var body: some View {
-        if symbol == "cloud.sun" || symbol == "cloud.moon" {
-            ZStack {
-                Circle().strokeBorder(Color.white.opacity(0.7), lineWidth: 5 * s)
-                    .frame(width: 160 * s, height: 160 * s)
-                Image(systemName: "cloud.fill")
-                    .font(.system(size: 96 * s, weight: .regular))
-                    .foregroundStyle(Color(white: 0.21))
-                    .overlay {
-                        Image(systemName: "cloud")
-                            .font(.system(size: 96 * s, weight: .ultraLight))
-                            .foregroundStyle(.white.opacity(0.65))
-                    }
-                    .offset(x: -22 * s, y: 51 * s)
-            }.frame(width: 190 * s, height: 180 * s)
-        } else {
-            Image(systemName: symbol)
-                .font(.system(size: 136 * s, weight: .ultraLight))
-                .frame(width: 190 * s, height: 180 * s)
-        }
+        Group {
+            if let asset = ClearCondition.asset(weather.code, day: weather.isDay) {
+                Image(asset).resizable().widgetAccentedRenderingMode(.fullColor).scaledToFit()
+            } else {
+                Color.clear
+            }
+        }.frame(width: 190 * s, height: 180 * s)
     }
 }
 
@@ -326,7 +337,7 @@ private struct WeatherPage: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Ahora").font(.system(size: 34 * s, design: .rounded)).foregroundStyle(.white.opacity(0.70))
                 Spacer(minLength: 0)
-                WeatherGlyph(symbol: weather.symbol, s: s)
+                WeatherGlyph(weather: weather, s: s)
                     .foregroundStyle(.white.opacity(0.65))
                     .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
@@ -380,7 +391,7 @@ private struct NavigationRail: View {
             topTrailingRadius: (page == .calendar ? 86 : 14) * s
         )
         return Button(intent: SelectPage(page)) {
-            OriginalImage(name: active == page ? asset + "On" : asset)
+            OriginalImage(name: active == page && page != .home ? asset + "On" : asset)
                 .frame(width: 173 * s, height: height * s)
                 .contentShape(.interaction, shape)
                 .contentShape(.hoverEffect, shape)
@@ -398,7 +409,12 @@ private struct FamilyRoot: View {
     let entry: Entry
     var body: some View {
         if family == .systemSmall {
-            GlassSmallView(forecast: entry.glass, shortcut: entry.configuration.home)
+            switch entry.configuration.design {
+            case .glass:
+                GlassSmallView(forecast: entry.glass, shortcut: entry.configuration.home)
+            case .clear:
+                ClearSmallView(date: entry.date, forecast: entry.glass, shortcut: entry.configuration.home)
+            }
         } else {
             ClearView(entry: entry)
         }
@@ -412,7 +428,7 @@ struct ClearWidget: Widget {
             FamilyRoot(entry: entry)
         }
         .configurationDisplayName("ClearWidget")
-        .description("Pequeño: pronóstico de cinco horas. Mediano: inicio, clima y calendario.")
+        .description("Dos diseños pequeños configurables y Clear Medium.")
         .supportedFamilies([.systemSmall, .systemMedium])
         .contentMarginsDisabled()
         .containerBackgroundRemovable(true)

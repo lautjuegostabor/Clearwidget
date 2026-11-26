@@ -5,8 +5,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: '5.0'
-    MARKETING_VERSION: '0.5.1'
-    CURRENT_PROJECT_VERSION: '7'
+    MARKETING_VERSION: '0.5.2'
+    CURRENT_PROJECT_VERSION: '8'
     CODE_SIGNING_ALLOWED: 'NO'
 targets:
   ClearWidget:
@@ -21,8 +21,8 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: "\u2800"
-        CFBundleShortVersionString: "0.5.1"
-        CFBundleVersion: "7"
+        CFBundleShortVersionString: "0.5.2"
+        CFBundleVersion: "8"
         UILaunchScreen: {}
     dependencies:
       - target: ClearWidgetExtension
@@ -42,8 +42,8 @@ targets:
       path: Widget/Info.plist
       properties:
         CFBundleDisplayName: "\u2800"
-        CFBundleShortVersionString: "0.5.1"
-        CFBundleVersion: "7"
+        CFBundleShortVersionString: "0.5.2"
+        CFBundleVersion: "8"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
 schemes:

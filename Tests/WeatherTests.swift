@@ -46,6 +46,9 @@ struct WeatherTests {
         let crossing = ForecastCache(fetchedAt: midnight, payload: payload).glassForecast(at: midnight)
         precondition(crossing.hours.map(\.label) == ["24", "25", "26", "27", "28"])
         precondition(cache.glassForecast(at: start.addingTimeInterval(11 * 3600)).hours.first?.label == "12")
-        print("Weather and Glass Small forecast tests passed")
+        precondition(ClearCondition.asset(2, day: false) == "ClearWeather10")
+        precondition(ClearCondition.asset(0, day: true) == "ClearWeather0")
+        precondition(ClearCondition.asset(95, day: true) == "ClearWeather5")
+        print("Weather and both Clear icon mapping tests passed")
     }
 }

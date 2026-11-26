@@ -44,9 +44,36 @@ boxes = [("OriginalKeyCalendar",(1248,99,1421,275)),
 for name, box in boxes:
     key = frame.crop(box)
     write(name,key)
-    # Only a restrained static luminance change. Preserve original alpha and texture.
-    pressed = ImageEnhance.Brightness(key.convert("RGB")).enhance(0.83).convert("RGBA")
-    pressed.putalpha(key.getchannel("A"))
+    # Shade only the metal face, not the rectangular crop, indicator, rim or background.
+    if name == "OriginalKeyHome":
+        pressed = key.copy()
+    else:
+        from PIL import ImageDraw
+        w,h = key.size
+        scale = 4
+        mask_hi = Image.new("L", (w*scale,h*scale))
+        draw = ImageDraw.Draw(mask_hi)
+        # Artwork measured in original pixels; upper/lower face has asymmetric corners.
+        r = 82*scale
+        left, right = 3*scale, (w-4)*scale
+        top, bottom = 3*scale, (h-4)*scale
+        draw.rounded_rectangle((left,top,right,bottom),radius=r,
+            corners=(name=="OriginalKeyCalendar",name=="OriginalKeyCalendar",name=="OriginalKeyWeather",name=="OriginalKeyWeather"),fill=255)
+        # Smooth the smaller corners adjacent to the separator.
+        inner = Image.new("L",(w*scale,h*scale))
+        ImageDraw.Draw(inner).rounded_rectangle((left,top,right,bottom),radius=13*scale,fill=255)
+        from PIL import ImageChops
+        mask = ImageChops.multiply(mask_hi,inner).resize((w,h),Image.Resampling.LANCZOS)
+        # Keep colored indicator and antialiasing, including its immediate rim, unchanged.
+        rgb = key.convert("RGB")
+        indicator = Image.new("L",(w,h),255)
+        ImageDraw.Draw(indicator).rounded_rectangle((61,77 if name=="OriginalKeyCalendar" else 75,111,99 if name=="OriginalKeyCalendar" else 98),radius=7,fill=0)
+        mask = ImageChops.multiply(mask,indicator)
+        darker = ImageEnhance.Brightness(rgb).enhance(0.83)
+        pressed = Image.composite(darker,rgb,mask).convert("RGBA")
+        pressed.putalpha(key.getchannel("A"))
+        assert pressed.getpixel((0,0)) == key.getpixel((0,0))
+        assert pressed.getchannel("A").tobytes() == key.getchannel("A").tobytes()
     write(name+"On",pressed)
     base.paste((0,0,0,0),box)
 write("OriginalFrame",base)
@@ -87,3 +114,30 @@ for i, (remote, expected) in enumerate([
     assert hashlib.sha256(im.tobytes()).hexdigest() == expected, f"Weather artwork differs: {i}"
     write(f"GlassWeather{i}", im)
 print("Verified all 11 original Glass Small 7 weather images.")
+
+# Clear Small and Clear Medium exports share the identical decoded icon pixels.
+for name, remote, expected, size in [
+    ("ClearWeather0", "r6JPJzfTwDq5DYyxIAVEOKeXqT049f9ZBbXpZgXV.png", "4ff86a4c559fc0c62f529cb7f51149703331af6c86fb3d466f95da0d6d9badae", 200),
+    ("ClearWeather1", "PQdB8a6yYKMhKU6ok3lPrI3CaXuGlgkCpciP3U4W.png", "8074865340793ecdfb51f92264e2eaaa14d7a51fc9cf9c3e5b215297b6a3ab77", 200),
+    ("ClearWeather2", "s5t0xaHJqfzCver6C6TiRwN83wNhApJ8eo9CBThh.png", "2007ea4a4a6c8501d311737b75fd12b3aee9b4f9a38c58548844d92bd0d5ac0c", 200),
+    ("ClearWeather3", "Cgh92sbO7Jcg48Ei8gpwb5sZsyHLeYwinWS3HhFM.png", "b33e639d1df67b8e9c01326f6bbf6cc62f4695a7aa10c8aa593348041b2502f1", 200),
+    ("ClearWeather4", "NbfPUyz0hrpOq4VXKMDbqjBV6i3tMOovoWHkAJYf.png", "576a9c68092a78b6823f50a71241e441f8c8d0982cca02d85fa1f662aa7d368f", 200),
+    ("ClearWeather5", "nDIrV4n7yuzBcX2sbWoocFECAzQg217DdfoW4qcI.png", "7c5b404c06692877867c4f1a8be8a3e040d8de159c2a1a42aba1e8e46758e0ae", 200),
+    ("ClearWeather6", "RCxoSbUVWtTnG705pqbaVCEHtmdnnuxEA3ctPKqz.png", "fa171b800f08ee2a47f0c4dc42dbd351d9b3957ed9b5673de04b4ed74109ceef", 200),
+    ("ClearWeather7", "zDlJY1OGjdTxdPR3xvdmI0Og2hVZCuQvAwLNqtZn.png", "2cfc1121f370ed0a034410038b8acbc4c38be5bc62e289cf703cc65980d45475", 200),
+    ("ClearWeather8", "Zo2spxrYkD0cyKYP0tnHlSdA9z6C1avdkEzLfoWX.png", "56823a9ced6f7fef7d6472b0d53ef58266abf9eeedda224110b04d0355baef35", 200),
+    ("ClearWeather9", "tyPdSetvuAay8jmI2LU5GfaeDmyhlCODAsbA0CmT.png", "bae634e00b78d57ad4c0a29ecdbc1c42c4dd4b0d2fa8c9bfbc80d30885b722d1", 200),
+    ("ClearWeather10", "MCvBp2le6fIkJJZMOca5TuMU2SszJWLupcVscIA7.png", "c9afdadf4d5109f8dc2069a5488d07d2bfb5339f5d7c5ddb0d44b72c7be7fc73", 200),
+    ("ClearWeather11", "1RyvfJtAFofipslSHMTRYHgtAWkoVfIfFQwzwtuv.png", "0de92061a3650b8a877514d475cdf54cf72cd0e260c121f9f1b3a43be0046273", 200),
+    ("ClearSmallDay", "UrkaFMX2m4drMZwDY64w3Fp6xTg9BbjgPXdhPYrK.png", "e6d3aa17ee09d704d3b8c12962c6876dbde615c31941402ecf482c0b8d62b73c", 354),
+    ("ClearSmallNight", "5vQgCTu0NWxhrjj7C58qvBZ2BIVmbwwLqOQWUF9q.png", "d7c33962a82260a727a12b6f0b83283f69a0a39cb3767d825c82f48bd35eba00", 354),
+]:
+    req = urllib.request.Request(SOURCE + remote, headers={"User-Agent":"ClearWidget personal asset build"})
+    with urllib.request.urlopen(req, timeout=20) as response:
+        raw = response.read(2_000_001)
+    assert len(raw) <= 2_000_000
+    im = Image.open(io.BytesIO(raw)).convert("RGBA")
+    assert im.size == (size,size)
+    assert hashlib.sha256(im.tobytes()).hexdigest() == expected, name
+    write(name, im)
+print("Verified original Clear assets and day/night artwork.")
