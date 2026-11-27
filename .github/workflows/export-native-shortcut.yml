@@ -1,0 +1,44 @@
+name: Export ClearWidget weather shortcut
+on:
+  push:
+    branches: [shortcut-native-export]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ClearWidget-v0.5.10
+          run-id: 45924493815
+          github-token: ${{ github.token }}
+          path: /tmp/cw-ipa
+      - name: Generate and validate against compiled app metadata
+        run: python3 Tools/export_native_weather_shortcut.py
+      - name: Sign generic shortcut, verify returned bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          curl --fail --show-error --silent --connect-timeout 10 --max-time 90 --form 'file=@/tmp/ClearWidget-Clima.unsigned.shortcut' 'https://sign.shortcuty.app/api/v1/sign?response=json' -o /tmp/sign-result.json
+          python3 - <<'PY'
+          import hashlib,base64,json,pathlib
+          x=json.load(open('/tmp/sign-result.json'))
+          assert x['success'] is True
+          f=x['file']
+          data=base64.b64decode(f['content_base64'],validate=True)
+          assert f['format']=='AEA1' and data[:4]==b'AEA1'
+          assert f['input_sha256']==hashlib.sha256(pathlib.Path('/tmp/ClearWidget-Clima.unsigned.shortcut').read_bytes()).hexdigest()
+          assert f['signed_sha256']==hashlib.sha256(data).hexdigest()
+          pathlib.Path('out/Actualizar clima ClearWidget.shortcut').write_bytes(data)
+          print('Verified signed container and source checksum; device import not tested')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClearWidget-Clima-Signed
+          path: out/*.shortcut
+          if-no-files-found: error
