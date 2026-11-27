@@ -92,3 +92,5 @@ enum WeatherShortcutRecipe {
 }
 
 // Clipboard generation is local-only; actual editor paste requires device verification.
+
+// Build 18: per-action binary representation; iOS import remains to be verified.
