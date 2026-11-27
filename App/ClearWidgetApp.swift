@@ -12,7 +12,6 @@ struct ClearWidgetApp: App {
     @State private var widgetRefreshStatus = ""
     @State private var locationStatus = ""
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.openURL) private var openURL
     init() {
         ClearWidgetShortcuts.updateAppShortcutParameters()
         ClearSignSetup.purgeAbandonedSetup()
@@ -28,7 +27,7 @@ struct ClearWidgetApp: App {
                         Text("Elegí la apariencia Transparente de iOS para el cristal nativo.")
                     }
                     Section("Diagnóstico de widgets") {
-                        Text("Versión " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"))
+                        Text("Versión " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—") + " · Build " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"))
                         Text(installedWidgets)
                         Button("Consultar widgets añadidos") {
                             WidgetCenter.shared.getCurrentConfigurations { result in
@@ -66,7 +65,11 @@ struct ClearWidgetApp: App {
                                 locationStatus = "Solicitud enviada. Elegí el permiso en iOS."
                             case .denied:
                                 locationStatus = "Permiso denegado. Habilitá la ubicación en Ajustes."
-                                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(url) { success in
+                                        if !success { DispatchQueue.main.async { locationStatus = "No se pudieron abrir Ajustes." } }
+                                    }
+                                }
                             case .restricted: locationStatus = "El sistema restringe el acceso a ubicación."
                             case .authorizedAlways, .authorizedWhenInUse: locationStatus = "Ubicación autorizada."
                             @unknown default: locationStatus = "Estado de ubicación desconocido."

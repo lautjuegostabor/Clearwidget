@@ -104,7 +104,10 @@ private enum ClearSignVault {
         guard SecItemAdd(q as CFDictionary,nil)==errSecSuccess else{throw ClearSignError(message:"No se pudo conservar la clave de firma. No se solicitó certificado.")}
         return data
     }
-    static func erase(){SecItemDelete(query as CFDictionary)}
+    static func erase() throws {
+        let result=SecItemDelete(query as CFDictionary)
+        guard result==errSecSuccess || result==errSecItemNotFound else { throw ClearSignError(message:"No se pudo eliminar la sesión local de firma.") }
+    }
     static func allowed(_ name:String)->Bool {
         if ["account.plist","pairing.plist","anisette-server","host-uuid","device-port"].contains(name){return true}
         return name.hasPrefix("anisette-") && name.hasSuffix(".plist") && !name.contains("/") && !name.contains("..") && name.count<200
@@ -246,7 +249,8 @@ private struct SignReceipt:Codable {
         update();schedule();Task{await notifications()}
     }
     func installForOtherTeam(_ ipa:Data, updateExisting:Bool=false) async {
-        guard !running,!setupActive,let data=ClearSignVault.load() else{return}
+        guard !running,!setupActive else{status="Hay otra operación en curso.";return}
+        guard let data=ClearSignVault.load() else{update();return}
         guard ipa.count>0,ipa.count<=16*1024*1024 else{status="IPA demasiado grande.";return}
         let profiles=EmbeddedProfile.installed()
         guard profiles.count==2,profiles[0].team==profiles[1].team,
@@ -286,9 +290,12 @@ private struct SignReceipt:Codable {
     }
     func forget(){
         guard !running,!setupActive else{return}
-        automatic=false;ClearSignVault.erase();configured=false
-        status="Sesión eliminada de Keychain."
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers:alertIDs)
+        do {
+            try ClearSignVault.erase()
+            automatic=false;configured=false
+            status="Sesión eliminada de Keychain. La aplicación sigue instalada."
+            Task { await notifications() }
+        } catch { status=error.localizedDescription }
     }
     func enableAlerts() async {
         do {
@@ -335,7 +342,8 @@ private struct SignReceipt:Codable {
         }
     }
     func renew(automaticRun:Bool=false) async -> Bool {
-        guard !running,!setupActive,let data=ClearSignVault.load() else{return false}
+        guard !running,!setupActive else{return false}
+        guard let data=ClearSignVault.load() else{update();return false}
         let profiles=EmbeddedProfile.installed()
         guard profiles.count==2,let until=currentExpiry(profiles) else{status="No hay dos perfiles válidos para comprobar.";return false}
         guard until>Date() else{status="Firma vencida: recuperá la instalación con BariStore.";return false}
@@ -396,8 +404,7 @@ private struct SignReceipt:Codable {
         let pointer:UnsafeMutablePointer<CChar>?=dir.path.withCString{path in
             request.withUnsafeBytes{raw in
                 guard let p=raw.bindMemory(to:UInt8.self).baseAddress else{return nil}
-                if !signing.configured { Text("Para firmar o actualizar un IPA, configurá o importá una sesión primero.").font(.caption).foregroundStyle(.secondary) }
-            if ipa != nil {return nativeBootstrap(path,p,request.count)}
+                if ipa != nil {return nativeBootstrap(path,p,request.count)}
                 return nativeRefresh(path,p,request.count)
             }
         }
@@ -485,11 +492,14 @@ struct ClearBootstrapPanel:View {
             Text("Guardá primero un respaldo cifrado. Para actualizar, seleccioná un IPA original de build superior; se conservan los identificadores y se reutiliza la sesión. Si falta la clave correspondiente, Apple puede tener que emitir otro certificado. Nunca se revocan certificados. Para instalar con otra cuenta, usá el IPA de la misma versión.").font(.caption)
             Button("Seleccionar IPA original"){pickKind = .ipa;picking=true}
                 .disabled(!signing.controls.canManageSession)
+            if !signing.configured {
+                Text("Para firmar o actualizar un IPA, configurá o importá una sesión primero.").font(.caption).foregroundStyle(.secondary)
+            }
             if ipa != nil {
                 Button("Actualizar esta instalación"){updating=true;confirmation=true}
-                    .disabled(!signing.controls.canImport)
+                    .disabled(!signing.controls.canManageSession)
                 Button("Firmar e instalar copia nueva"){updating=false;confirmation=true}
-                    .disabled(!signing.controls.canImport)
+                    .disabled(!signing.controls.canManageSession)
                 Button("Descartar IPA"){ipa=nil}
             }
             Button("Importar respaldo cifrado de sesión"){pickKind = .backup;picking=true}
@@ -498,8 +508,8 @@ struct ClearBootstrapPanel:View {
                 SecureField("Clave del respaldo",text:$secret).privacySensitive()
                 Button("Importar sesión"){
                     guard let bytes=backup else{return}
-                    defer{secret="";backup=nil}
-                    do{try signing.importEncryptedSession(bytes,secret:secret.trimmingCharacters(in:.whitespacesAndNewlines));message="Sesión importada."}
+                    defer{secret=""}
+                    do{try signing.importEncryptedSession(bytes,secret:secret.trimmingCharacters(in:.whitespacesAndNewlines));backup=nil;message="Sesión importada."}
                     catch{message="No se pudo importar el respaldo; no se reemplazó la sesión. Revisá el archivo y la clave."}
                 }.disabled(secret.isEmpty||signing.running||signing.setupActive)
             }
@@ -525,11 +535,13 @@ struct ClearBootstrapPanel:View {
         .confirmationDialog("¿Instalar ClearWidget con la cuenta de ClearSign?",isPresented:$confirmation,titleVisibility:.visible){
             Button("Autorizar nueva firma"){
                 Task{@MainActor in
-                    guard let data=ipa else{return}
+                    guard let data=ipa, signing.controls.canManageSession else{message="No hay IPA o sesión disponible, o hay una operación en curso.";return}
+                    let update=updating
                     do{
-                        guard try await LAContext().evaluatePolicy(.deviceOwnerAuthentication,localizedReason:"Autorizar certificado e instalación local de ClearWidget") else{return}
+                        guard try await LAContext().evaluatePolicy(.deviceOwnerAuthentication,localizedReason:"Autorizar certificado e instalación local de ClearWidget") else{message="No se autorizó la instalación.";return}
+                        guard signing.controls.canManageSession else{message="Cambió el estado de la sesión; no se inició la instalación.";return}
                         ipa=nil
-                        await signing.installForOtherTeam(data,updateExisting:updating)
+                        await signing.installForOtherTeam(data,updateExisting:update)
                     }catch{message="No se autorizó la instalación."}
                 }
             }

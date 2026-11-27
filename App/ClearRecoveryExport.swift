@@ -58,7 +58,8 @@ struct ClearRecoveryExportPanel: View {
                 consent = false
                 let context = LAContext()
                 do {
-                    guard try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Autorizar respaldo local de ClearSign") else { return }
+                    guard try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Autorizar respaldo local de ClearSign") else { status = "No se autorizó el respaldo."; return }
+                    guard signing.controls.canBackup else { status = "La sesión o la vigencia cambiaron; no se creó el respaldo."; return }
                     let result = try signing.recoveryExport()
                     document = result.0; secret = result.1; exporting = true
                     status = "Elegí En mi iPhone. La clave aparece abajo. El respaldo no es una garantía de recuperación."

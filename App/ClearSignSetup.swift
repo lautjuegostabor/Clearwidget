@@ -67,10 +67,10 @@ private struct SetupSnapshot: Decodable {
             ClearSign.shared.setSetupActive(true)
             let d = try prepare()
             launch(d.path.withCString { setupPair($0) }, text: "Preparando emparejamiento local…", pairing: true)
-        } catch { ClearSign.shared.setSetupActive(false); status = "No se pudo preparar el almacenamiento local protegido." }
+        } catch { removeStaging(); ClearSign.shared.setSetupActive(false); status = "No se pudo preparar el almacenamiento local protegido." }
     }
     func verify() {
-        guard paired, !running, let directory else { return }
+        guard paired, !running, !ClearSign.shared.running, ClearSign.shared.setupActive, let directory else { status="Primero creá un emparejamiento o finalizá la operación en curso."; return }
         launch(directory.path.withCString { setupVerify($0) }, text: "Comprobando con LocalDevVPN…", pairing: false)
     }
     func authenticate(email: String, password: String, server: String) {
@@ -89,7 +89,7 @@ private struct SetupSnapshot: Decodable {
         else { status="El motor no aceptó el código. No se realizó un nuevo intento." }
     }
     private func launch(_ ok: Bool, text: String, pairing: Bool) {
-        guard ok else { if pairing { ClearSign.shared.setSetupActive(false) }; status = "El motor está ocupado o no pudo iniciar. No se reintentó."; return }
+        guard ok else { if pairing { removeStaging(); ClearSign.shared.setSetupActive(false) }; status = "El motor está ocupado o no pudo iniciar. No se reintentó."; return }
         running = true; stopping = false; needsCode = false; pairCode = nil; lastPhase = ""; status = text
         if pairing {
             backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Emparejamiento de ClearWidget autorizado") { [weak self] in
@@ -147,7 +147,7 @@ private struct SetupSnapshot: Decodable {
             removeStaging(); finish(saved ? "Sesión guardada localmente. Falta comprobar una renovación manual." : "No se pudo guardar la sesión. No se reintentó.")
         case "error":
             let c = snapshot.code ?? "engine_unavailable"
-            if !paired || c == "authentication_stopped" { removeStaging(); ClearSign.shared.setSetupActive(false) }
+            if !paired || c == "authentication_stopped" || c == "cancelled" { removeStaging(); ClearSign.shared.setSetupActive(false) }
             finish("Operación detenida: \(c). No se reintentó automáticamente.")
         default: break
         }
