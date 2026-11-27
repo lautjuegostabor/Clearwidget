@@ -55,9 +55,9 @@ struct AppleWeatherInput: Decodable {
               zip(hours, hours.dropFirst()).allSatisfy({ $1.time - $0.time == 3600 }) else { throw AppleWeatherError.invalid }
         let rows = [x.current] + hours
         let c = ForecastPayload.Current(time: Int(x.current.time), temperature_2m: x.current.temperature,
-                                      weather_code: code(x.current.condition), is_day: x.current.isDay ? 1 : 0)
+                                      weather_code: Self.code(x.current.condition), is_day: x.current.isDay ? 1 : 0)
         let h = ForecastPayload.Hourly(time: rows.map { Int($0.time) }, temperature_2m: rows.map { Optional($0.temperature) },
-                                      weather_code: rows.map { code($0.condition) }, is_day: rows.map { $0.isDay ? 1 : 0 })
+                                      weather_code: rows.map { Self.code($0.condition) }, is_day: rows.map { $0.isDay ? 1 : 0 })
         let zone = x.timezone.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
         return ForecastCache(fetchedAt: now, payload: ForecastPayload(current: c, hourly: h, timezone: zone.identifier),
                              source: "apple", location: position, tomorrowMaximum: x.tomorrowHigh, todayLow: x.todayLow)
