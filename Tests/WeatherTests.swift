@@ -65,6 +65,39 @@ struct WeatherTests {
         precondition(AppleWeatherInput.code("Partly Cloudy") == 2)
         precondition(AppleWeatherInput.code("Tormenta") == 95)
         precondition(AppleWeatherInput.code("inconocido") == nil)
+        // Same real values as the original JSON fixture, now as typed parameters.
+        // Fahrenheit deliberately tests that the shortcut need not convert units.
+        let native = try NativeAppleWeatherInput.makeCache(latitude: -31.4, longitude: -64.2,
+            timezone: TimeZone(identifier: "America/Argentina/Cordoba")!,
+            currentTemperature: .init(value: 77, unit: .fahrenheit), currentCondition: "Despejado",
+            hourlyDates: [now.addingTimeInterval(-1800)] + (11...15).map { Date(timeIntervalSince1970: Double(times[$0])) },
+            hourlyTemperatures: [99.0,20,21,22,23,24].map { .init(value: $0, unit: .celsius) },
+            hourlyConditions: Array(repeating: "Parcialmente nublado", count: 6),
+            todayLow: .init(value: 15, unit: .celsius), tomorrowHigh: .init(value: 84.2, unit: .fahrenheit), at: now)
+        precondition(abs((native.reading(at: now).current ?? 0) - 25) < 0.001)
+        precondition(abs((native.reading(at: now).tomorrowHigh ?? 0) - 29) < 0.001)
+        precondition(native.todayMinimum(at: now) == 15)
+        precondition(native.payload.hourly.time.count == 6 && native.payload.hourly.time[1] == times[11])
+        precondition(native.payload.current?.is_day == 1)
+        precondition(!NativeAppleWeatherInput.isDay(at: midnight, latitude: -31.4, longitude: -64.2))
+        precondition(NativeAppleWeatherInput.isDay(at: now, latitude: -31.4, longitude: -64.2))
+        func invalidNative(_ ds: [Date], _ ts: [Measurement<UnitTemperature>], _ cs: [String]) -> Bool {
+            do {
+                _ = try NativeAppleWeatherInput.makeCache(latitude: -31.4, longitude: -64.2,
+                    timezone: cal.timeZone, currentTemperature: .init(value: 23, unit: .celsius),
+                    currentCondition: "Despejado", hourlyDates: ds, hourlyTemperatures: ts,
+                    hourlyConditions: cs, todayLow: .init(value: 15, unit: .celsius),
+                    tomorrowHigh: .init(value: 30, unit: .celsius), at: now)
+                return false
+            } catch { return true }
+        }
+        let d = (11...15).map { Date(timeIntervalSince1970: Double(times[$0])) }
+        let v = Array(repeating: Measurement(value: 23.0, unit: UnitTemperature.celsius), count: 5)
+        let c = Array(repeating: "Despejado", count: 5)
+        precondition(invalidNative(d, Array(v.dropLast()), c))
+        precondition(invalidNative([d[0],d[0],d[2],d[3],d[4]], v, c))
+        precondition(invalidNative([d[0],d[1],d[2],d[3],d[4].addingTimeInterval(3600)], v, c))
+        precondition(invalidNative(d, v, ["","Despejado","Despejado","Despejado","Despejado"]))
         let location = apple.location!
         let fallback = ForecastCache(fetchedAt: now, payload: payload, source: "openmeteo", location: location)
         precondition(ForecastDisk.select(apple: apple, fallback: fallback, location: location, at: now)?.source == "apple")

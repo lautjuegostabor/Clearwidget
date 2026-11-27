@@ -51,7 +51,7 @@ struct ClearWidgetApp: App {
                     Section("Pronóstico") {
                         Text("Ubicación automática · temperaturas en °C. Habilitá la ubicación de la app y sus widgets para que el respaldo funcione al viajar.")
                         Button("Permitir ubicación") { locationManager.requestWhenInUseAuthorization() }
-                        Text("Apple Weather mediante Atajos (integración experimental). Configurá Guardar clima de Apple con el pronóstico JSON y ejecutá tu atajo manualmente o mediante una automatización cada hora.")
+                        Text("Apple Weather mediante Atajos. Usá Actualizar clima Apple (sin JSON) con los detalles de Clima de Apple. La acción anterior de JSON sigue disponible para atajos existentes.")
                         Text("Para actualizar al tocar el widget, asigná ese atajo a Acción principal o Abrir Clima. Podés añadir Abrir app al final del atajo si lo deseás.")
                         Link("Respaldo: Open-Meteo · ECMWF", destination: URL(string: "https://open-meteo.com/")!)
                         Link("Modelo ECMWF", destination: URL(string: "https://www.ecmwf.int/")!)

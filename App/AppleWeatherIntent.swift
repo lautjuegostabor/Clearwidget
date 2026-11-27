@@ -1,6 +1,7 @@
 import AppIntents
 import WidgetKit
 import Foundation
+import CoreLocation
 
 // The host registers the actions; only the widget extension may perform them.
 // Both targets contain the same intent types and metadata.
@@ -22,6 +23,10 @@ private actor ShortcutWriter {
         try checkTarget()
         // Use the same actor as the fallback forecast to serialize cache writes.
         try await WeatherService.shared.acceptShortcutApple(json)
+    }
+    func nativeWeather(_ cache: ForecastCache, at now: Date) async throws {
+        try checkTarget()
+        try await WeatherService.shared.acceptShortcutCache(cache, at: now)
     }
     func activity(_ source: String, _ steps: Int, _ kcal: Double) throws {
         try checkTarget()
@@ -54,6 +59,47 @@ struct AppleWeatherUpdateIntent: AppIntent {
         return .result(value: "Pronóstico guardado y releído dentro de WidgetKit. Recarga solicitada; Diagnóstico ClearWidget permite comprobar el timeline.")
     }
 }
+// Native measurements retain their units; dates stay as dates. No JSON or
+// locale-dependent string parsing. Keep the old action for existing shortcuts.
+struct NativeAppleWeatherIntent: AppIntent {
+    static var title: LocalizedStringResource = "Actualizar clima Apple (sin JSON)"
+    static var description = IntentDescription("Recibe directamente los detalles de Clima de Apple: ubicación, temperatura, condición y las listas del pronóstico.")
+    static var isDiscoverable = true
+    static var openAppWhenRun = false
+    static var allowedExecutionTargets: IntentExecutionTargets { .widgetKitExtension }
+    @Parameter(title: "Ubicación") var location: CLPlacemark
+    @Parameter(title: "Temperatura actual") var currentTemperature: Measurement<UnitTemperature>
+    @Parameter(title: "Condición actual") var currentCondition: String
+    @Parameter(title: "Fechas por hora") var hourlyDates: [Date]
+    @Parameter(title: "Temperaturas por hora") var hourlyTemperatures: [Measurement<UnitTemperature>]
+    @Parameter(title: "Condiciones por hora") var hourlyConditions: [String]
+    @Parameter(title: "Mínima de hoy") var todayLow: Measurement<UnitTemperature>
+    @Parameter(title: "Máxima de mañana") var tomorrowHigh: Measurement<UnitTemperature>
+    static var parameterSummary: some ParameterSummary {
+        Summary("Actualizar clima Apple en \(\.$location)") {
+            \.$currentTemperature
+            \.$currentCondition
+            \.$hourlyDates
+            \.$hourlyTemperatures
+            \.$hourlyConditions
+            \.$todayLow
+            \.$tomorrowHigh
+        }
+    }
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        guard let coordinate = location.location?.coordinate else { throw NativeWeatherInputError.location }
+        let now = Date()
+        let cache = try NativeAppleWeatherInput.makeCache(latitude: coordinate.latitude, longitude: coordinate.longitude,
+            timezone: location.timeZone ?? .autoupdatingCurrent,
+            currentTemperature: currentTemperature, currentCondition: currentCondition,
+            hourlyDates: hourlyDates, hourlyTemperatures: hourlyTemperatures, hourlyConditions: hourlyConditions,
+            todayLow: todayLow, tomorrowHigh: tomorrowHigh, at: now)
+        try await ShortcutWriter.shared.nativeWeather(cache, at: now)
+        WidgetCenter.shared.reloadTimelines(ofKind: "ClearWidget")
+        return .result(value: "Clima Apple guardado y releído. Actualización del widget solicitada.")
+    }
+}
+
 struct ActivityUpdateIntent: AppIntent {
     static var title: LocalizedStringResource = "Guardar actividad ClearWidget"
     static var description = IntentDescription("Guarda totales de una sola fuente sin enviar datos fuera del dispositivo.")

@@ -8,10 +8,15 @@ for directory, is_host in [(host, True), (widget, False)]:
     assert info['CFBundleDisplayName'] == '\u2800'
     metadata = json.loads((directory / 'Metadata.appintents/extract.actionsdata').read_bytes())
     actions = metadata['actions']
-    assert ids <= actions.keys(), ('Missing external actions',directory)
-    for name in ids:
+    assert ids | {"NativeAppleWeatherIntent"} <= actions.keys(), ('Missing external actions',directory)
+    for name in ids | {"NativeAppleWeatherIntent"}:
         a = actions[name]
         assert a.get('isDiscoverable') is True and a.get('allowedTargets') == target, (name,a.get('allowedTargets'))
+    native = actions['NativeAppleWeatherIntent']
+    # The compiler must emit every declared field in both targets.
+    serialized = json.dumps(native, ensure_ascii=False)
+    for param in ('location','currentTemperature','currentCondition','hourlyDates','hourlyTemperatures','hourlyConditions','todayLow','tomorrowHigh'):
+        assert param in serialized, ('Missing native field',directory,param)
     auto = {a['actionIdentifier'] for a in metadata.get('autoShortcuts', [])}
     if is_host:
         assert ids <= auto, 'Missing host AppShortcuts'

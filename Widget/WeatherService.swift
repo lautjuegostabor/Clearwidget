@@ -249,7 +249,12 @@ actor WeatherService {
     // cache before reporting success and associate the exact payload timestamp.
     func acceptShortcutApple(_ json: String, at now: Date = Date()) throws {
         let cache = try AppleWeatherInput.parse(json, at: now)
-        guard let position = cache.location,
+        try acceptShortcutCache(cache, at: now)
+    }
+
+    func acceptShortcutCache(_ cache: ForecastCache, at now: Date) throws {
+        guard cache.source == "apple", cache.fetchedAt == now,
+              let position = cache.location,
               ForecastDisk.location.map({ $0.observedAt <= now }) ?? true
         else { throw AppleWeatherError.invalid }
         try ForecastDisk.updateLocation(position)
