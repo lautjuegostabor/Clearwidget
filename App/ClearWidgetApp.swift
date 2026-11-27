@@ -77,7 +77,7 @@ struct ClearWidgetApp: App {
                         }
                         if !locationStatus.isEmpty { Text(locationStatus).font(.caption) }
                         Text("Usá el atajo ClearWidget - Apple Weather (texto). La app convierte y valida los datos de Apple. No uses el mecanismo anterior de copiado de acciones.")
-                        Text("Para actualizar al tocar el widget, asigná ese atajo a Acción principal o Abrir Clima. Podés añadir Abrir app al final del atajo si lo deseás.")
+                        Text("El atajo de clima puede ejecutarse cada 30 minutos. Al tocar el widget, mantené la acción de abrir tu aplicación elegida.")
                         Link("Respaldo: Open-Meteo · ECMWF", destination: URL(string: "https://open-meteo.com/")!)
                         Link("Modelo ECMWF", destination: URL(string: "https://www.ecmwf.int/")!)
                     }
@@ -101,7 +101,7 @@ struct ClearWidgetApp: App {
                     .onChange(of: scenePhase) { _, phase in
                         if phase == .active {
                             ClearSign.shared.update(); ClearSign.shared.schedule()
-                            Task { await ClearSign.shared.refreshAlerts() }
+                            Task { await ClearSign.shared.refreshAlerts(); _ = await ClearSign.shared.preventiveCheck() }
                             if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways { locationStatus = "Ubicación autorizada." }
                         }
                     }

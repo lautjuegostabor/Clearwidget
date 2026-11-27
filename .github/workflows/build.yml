@@ -2,7 +2,7 @@ name: Build ClearWidget IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration, v0.5.4-integration, v0.5.5-integration, v0.5.6-integration, v0.5.7-integration, v0.5.8-integration, v0.5.9-shortcuts, v0.5.10-native-weather, v0.5.11-weather-setup, v0.5.12-clipboard, v0.5.13-apple-text, v0.5.14-controls]
+    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration, v0.5.4-integration, v0.5.5-integration, v0.5.6-integration, v0.5.7-integration, v0.5.8-integration, v0.5.9-shortcuts, v0.5.10-native-weather, v0.5.11-weather-setup, v0.5.12-clipboard, v0.5.13-apple-text, v0.5.14-controls, v0.5.15-clearsign]
 permissions:
   contents: read
   actions: read
@@ -130,24 +130,24 @@ jobs:
           for path, bundle in zip(sys.argv[1:], ["com.clearwidget.app", "com.clearwidget.app.widget"]):
               p = plistlib.loads((pathlib.Path(path) / "Info.plist").read_bytes())
               assert p["CFBundleIdentifier"] == bundle, p
-              assert p["CFBundleShortVersionString"] == "0.5.14", p
-              assert p["CFBundleVersion"] == "20", p
+              assert p["CFBundleShortVersionString"] == "0.5.15", p
+              assert p["CFBundleVersion"] == "21", p
               assert p["CFBundleDisplayName"] == chr(0x2800), p
           print("Verified both final bundle identifiers, display names and versions")
           PY
           python3 Tools/check_shortcut_metadata.py "$app" "$ext"
           mkdir -p Payload
           cp -R "$app" Payload/
-          zip -qry ClearWidget-v0.5.14.ipa Payload
-          unzip -t ClearWidget-v0.5.14.ipa
+          zip -qry ClearWidget-v0.5.15.ipa Payload
+          unzip -t ClearWidget-v0.5.15.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: ClearWidget-v0.5.14
-          path: ClearWidget-v0.5.14.ipa
+          name: ClearWidget-v0.5.15
+          path: ClearWidget-v0.5.15.ipa
           if-no-files-found: error
 
   recovery:
-    if: github.ref_name != 'v0.5.9-shortcuts' && github.ref_name != 'v0.5.10-native-weather' && github.ref_name != 'v0.5.11-weather-setup' && github.ref_name != 'v0.5.12-clipboard' && github.ref_name != 'v0.5.13-apple-text' && github.ref_name != 'v0.5.14-controls'
+    if: github.ref_name != 'v0.5.9-shortcuts' && github.ref_name != 'v0.5.10-native-weather' && github.ref_name != 'v0.5.11-weather-setup' && github.ref_name != 'v0.5.12-clipboard' && github.ref_name != 'v0.5.13-apple-text' && github.ref_name != 'v0.5.14-controls' && github.ref_name != 'v0.5.15-clearsign'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

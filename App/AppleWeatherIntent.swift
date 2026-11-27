@@ -133,6 +133,7 @@ struct ClearWidgetShortcuts: AppShortcutsProvider {
         AppShortcut(intent: AppleWeatherUpdateIntent(), phrases: ["Guardar clima en \(.applicationName)"], shortTitle: "Guardar clima de Apple", systemImageName: "cloud.sun")
         AppShortcut(intent: ActivityUpdateIntent(), phrases: ["Guardar actividad en \(.applicationName)"], shortTitle: "Guardar actividad", systemImageName: "figure.walk")
         AppShortcut(intent: ClearWidgetStatusIntent(), phrases: ["Diagnóstico de \(.applicationName)"], shortTitle: "Diagnóstico ClearWidget", systemImageName: "info.circle")
+        AppShortcut(intent: ClearSignPreventiveIntent(), phrases: ["Comprobar firma de \(.applicationName)"], shortTitle: "Comprobar renovación ClearSign", systemImageName: "checkmark.shield")
     }
 }
 #endif

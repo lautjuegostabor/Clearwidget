@@ -19,11 +19,13 @@ for directory, is_host in [(host, True), (widget, False)]:
         assert param in serialized, ('Missing native field',directory,param)
     auto = {a['actionIdentifier'] for a in metadata.get('autoShortcuts', [])}
     if is_host:
-        assert ids <= auto, 'Missing host AppShortcuts'
+        assert ids | {'ClearSignPreventiveIntent'} <= auto, 'Missing host AppShortcuts'
+        assert 'ClearSignPreventiveIntent' in actions
         root=(directory/'Metadata.appintents/root.ssu.yaml').read_text()
         assert root.splitlines().count('    bundleIdentifier: '+info['CFBundleIdentifier'])==1
     else:
         assert not ids & auto, 'Duplicate shortcut provider'
+        assert 'ClearSignPreventiveIntent' not in actions, 'Signing action leaked into widget'
         assert actions['AdvanceSmall21'].get('allowedTargets') == target
         assert actions['AdvanceSmall21'].get('isDiscoverable') is True
         assert 'SelectPage' in actions

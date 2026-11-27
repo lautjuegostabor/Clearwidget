@@ -35,6 +35,7 @@ private struct SetupSnapshot: Decodable {
     private var lastPhase = ""
     private var stopping = false
     private let notificationID = "clearsign.setup.pairing-code"
+    var hasSavedPairing: Bool { ClearSignVault.storedPairing() != nil }
     static let providers = ["https://new.ani.sidestore.io", "https://mac-ani.jkcoxson.com", "https://ani.iloader.app"]
 
     static func purgeAbandonedSetup() {
@@ -68,6 +69,17 @@ private struct SetupSnapshot: Decodable {
             let d = try prepare()
             launch(d.path.withCString { setupPair($0) }, text: "Preparando emparejamiento local…", pairing: true)
         } catch { removeStaging(); ClearSign.shared.setSetupActive(false); status = "No se pudo preparar el almacenamiento local protegido." }
+    }
+    func restorePairing() {
+        guard !running,!ClearSign.shared.running,let data=ClearSignVault.storedPairing() else { status="No hay emparejamiento guardado disponible."; return }
+        do {
+            removeStaging()
+            ClearSign.shared.setSetupActive(true)
+            let d=try prepare()
+            try data.write(to:d.appendingPathComponent("pairing.plist"),options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication])
+            paired=true;verified=false
+            verify()
+        } catch { removeStaging();ClearSign.shared.setSetupActive(false);status="No se pudo recuperar el emparejamiento local." }
     }
     func verify() {
         guard paired, !running, !ClearSign.shared.running, ClearSign.shared.setupActive, let directory else { status="Primero creá un emparejamiento o finalizá la operación en curso."; return }
@@ -136,7 +148,12 @@ private struct SetupSnapshot: Decodable {
                 UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: notificationID, content: content, trigger: nil), withCompletionHandler: nil)
             }
         case "paired": paired = true; verified = false; finish("Emparejamiento recibido. Conectá LocalDevVPN y comprobalo.")
-        case "verified": verified = true; finish("Emparejamiento comprobado. Podés configurar la cuenta de firma.")
+        case "verified":
+            guard let directory else {finish("No se encontró el emparejamiento.");return}
+            do {
+                try ClearSignVault.savePairing(Data(contentsOf:directory.appendingPathComponent("pairing.plist")))
+                verified=true;finish("Emparejamiento comprobado y guardado. Podés configurar la cuenta de firma.")
+            } catch { verified=false;finish("No se pudo guardar el emparejamiento: "+error.localizedDescription) }
         case "twoFactor": needsCode = true; status = snapshot.kind == "sms" ? "Apple solicita el código SMS. Un único intento." : "Apple solicita el código de dispositivo de confianza. Un único intento."
         case "authenticating": needsCode = false; status = "Autenticación en curso. Sin rotación de servidores."
         case "authenticated":
@@ -147,9 +164,27 @@ private struct SetupSnapshot: Decodable {
             removeStaging(); finish(saved ? "Sesión guardada localmente. Falta comprobar una renovación manual." : "No se pudo guardar la sesión. No se reintentó.")
         case "error":
             let c = snapshot.code ?? "engine_unavailable"
-            if !paired || c == "authentication_stopped" || c == "cancelled" { removeStaging(); ClearSign.shared.setSetupActive(false) }
-            finish("Operación detenida: \(c). No se reintentó automáticamente.")
+            if !paired || c == "cancelled" { removeStaging(); ClearSign.shared.setSetupActive(false) }
+            // Keep verified pairing and the currently staged identity; no automatic retry.
+            finish(Self.errorMessage(c)+" ["+c+"]. No se reintentó automáticamente.")
         default: break
+        }
+    }
+    private static func errorMessage(_ code:String)->String {
+        switch code {
+        case "auth_code_rejected": return "Apple rechazó el código de verificación"
+        case "auth_rate_limited","auth_security_stop": return "Apple limitó la operación o requiere una acción de seguridad; no repitas el inicio de sesión"
+        case "auth_credentials_or_throttled": return "Apple rechazó las credenciales o limitó la cuenta"
+        case "auth_additional_verification": return "Apple requiere una verificación adicional"
+        case "auth_verification_response": return "Respuesta de verificación inesperada"
+        case "auth_verification_refused": return "Apple rechazó la verificación"
+        case "auth_token_failed","auth_token_invalid": return "No se obtuvo un token de firma válido"
+        case "auth_identity_refused","auth_anisette_unavailable": return "Identidad de autenticación no disponible o rechazada"
+        case "auth_service_refused","auth_connection_failed","auth_verification_transport": return "Servicio de autenticación no disponible"
+        case "auth_post_verification": return "No se completó la sesión después del código"
+        case "auth_storage_failed": return "No se pudo conservar la sesión"
+        case "timeout": return "La operación agotó el tiempo disponible"
+        default: return "Operación detenida"
         }
     }
     func netServiceDidPublish(_ sender: NetService) { status = "Anuncio local publicado. En Ajustes, aprobá el emparejamiento en Modo de desarrollador." }
@@ -172,7 +207,10 @@ struct ClearSignSetupPanel: View {
         if signing.automatic { Text("La renovación se pausa mientras configurás el emparejamiento.").font(.caption).foregroundStyle(.secondary) }
         if let c = setup.pairCode { Text(c).font(.title.monospacedDigit()).privacySensitive() }
         Button("Comprobar emparejamiento") { setup.verify() }.disabled(!setup.paired || setup.running || signing.running)
-        if !setup.paired { Text("Creá primero un emparejamiento propio.").font(.caption).foregroundStyle(.secondary) }
+        if !setup.paired {
+            if setup.hasSavedPairing { Button("Recuperar emparejamiento guardado") { setup.restorePairing() }.disabled(setup.running || signing.running) }
+            else { Text("Creá primero un emparejamiento propio.").font(.caption).foregroundStyle(.secondary) }
+        }
         if setup.verified && !setup.running {
             Text("No inicies sesión si Apple limitó tu cuenta. El método no es una API pública de autenticación de Apple. No guardamos la contraseña ni cambiamos certificados.").font(.caption)
             Picker("Servidor Anisette", selection: $server) { ForEach(ClearSignSetup.providers, id: \.self) { Text($0).tag($0) } }

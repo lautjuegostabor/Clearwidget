@@ -61,7 +61,7 @@ private struct ClearSignError: LocalizedError {
 }
 // Sensitive exported BariStore session and pairing material never leaves device.
 // Only Keychain retains it between runs. No Apple password or signing private key.
-private enum ClearSignVault {
+enum ClearSignVault {
     static let service="com.clearwidget.clearsign"
     static let account="baristore-session-v1"
     static var query:[String:Any] {[kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:service,kSecAttrAccount as String:account]}
@@ -80,6 +80,25 @@ private enum ClearSignVault {
         guard result == errSecSuccess else { return false } // locked/inaccessible is not absence
         guard let d=out as? Data, let files=try? JSONDecoder().decode([String:Data].self,from:d) else { return true }
         return (try? validateSession(files)) == nil
+    }
+    // Pairing is independent of Apple authentication and survives failed login.
+    private static var pairingQuery:[String:Any] {
+        var q=query; q[kSecAttrAccount as String]="clearsign-pairing-v1"; return q
+    }
+    static func storedPairing() -> Data? {
+        var q=pairingQuery; q[kSecReturnData as String]=true; q[kSecMatchLimit as String]=kSecMatchLimitOne
+        var out:CFTypeRef?
+        if SecItemCopyMatching(q as CFDictionary,&out)==errSecSuccess,let data=out as? Data,!data.isEmpty,data.count<=256_000{return data}
+        return nil
+    }
+    static func savePairing(_ data:Data) throws {
+        guard !data.isEmpty,data.count<=256_000 else{throw ClearSignError(message:"Emparejamiento inválido.")}
+        let attrs:[String:Any]=[kSecValueData as String:data,kSecAttrAccessible as String:kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+        let result=SecItemUpdate(pairingQuery as CFDictionary,attrs as CFDictionary)
+        if result==errSecItemNotFound {
+            var q=pairingQuery; for (k,val) in attrs{q[k]=val}
+            guard SecItemAdd(q as CFDictionary,nil)==errSecSuccess else{throw ClearSignError(message:"No se pudo guardar el emparejamiento.")}
+        }else if result != errSecSuccess {throw ClearSignError(message:"No se pudo guardar el emparejamiento.")}
     }
     static func save(_ entries:[String:Data]) throws {
         let d=try JSONEncoder().encode(entries)
@@ -331,6 +350,19 @@ private struct SignReceipt:Codable {
                 catch { alertStatus="No se pudo programar un aviso: "+error.localizedDescription }
             }
         }
+    }
+    // Shared entry point for foreground and Shortcuts, with same throttle as BG task.
+    func preventiveCheck() async -> String {
+        update()
+        guard automatic else{return "Renovación preventiva desactivada."}
+        guard configured else{return "No hay sesión válida. No se inició sesión en Apple."}
+        guard !running,!setupActive else{return "ClearSign tiene otra operación en curso."}
+        guard let expiry,expiry>Date() else{return "No hay vigencia comprobable."}
+        guard expiry.timeIntervalSinceNow<=5*86400 else{return "Firma vigente. No corresponde renovar todavía."}
+        let last=UserDefaults.standard.double(forKey:attemptKey)
+        guard Date().timeIntervalSince1970-last>=6*3600 else{return "Ya hubo un intento reciente. No se repitió."}
+        let ok=await renew(automaticRun:true)
+        return ok ? status : "No se confirmó renovación. "+status
     }
     private func handle(_ task:BGProcessingTask){
         let work=Task{@MainActor in await renew(automaticRun:true)}

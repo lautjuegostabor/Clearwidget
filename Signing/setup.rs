@@ -28,8 +28,9 @@ fn start(dir:String,operation:Operation)->bool {
             let _lock=crate::LOCK.try_lock().map_err(|_|"engine_busy")?;
             std::env::set_var("BARISTORE_HOME",dir);
             let rt=tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().map_err(|_|"engine_unavailable")?;
+            let timeout=if matches!(&operation,Operation::Auth{..}) {300} else {150};
             let r=rt.block_on(async {tokio::select! {
-                result=tokio::time::timeout(Duration::from_secs(150),run(operation))=>result.unwrap_or(Err("timeout")),
+                result=tokio::time::timeout(Duration::from_secs(timeout),run(operation))=>result.unwrap_or(Err("timeout")),
                 _=wait_cancel()=>Err("cancelled")
             }});
             rt.shutdown_timeout(Duration::from_secs(2));r
@@ -78,7 +79,7 @@ async fn run(op:Operation)->Result<&'static str,&'static str>{
                 })
             };
             // Only the explicitly selected route; no fallback across servers or claims.
-            gsa::clearsign_login_once(&email,&password,&server,&ask).await.map_err(|_|"authentication_stopped")?;
+            gsa::clearsign_login_once(&email,&password,&server,&ask).await?;
             Ok("authenticated")
         }
     }
