@@ -2,7 +2,7 @@ name: Build ClearWidget IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration, v0.5.4-integration, v0.5.5-integration, v0.5.6-integration, v0.5.7-integration, v0.5.8-integration]
+    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration, v0.5.4-integration, v0.5.5-integration, v0.5.6-integration, v0.5.7-integration, v0.5.8-integration, v0.5.9-shortcuts]
 permissions:
   contents: read
 concurrency:
@@ -39,7 +39,7 @@ jobs:
       - name: Test weather cache and forecast selection
         run: |
           set -euo pipefail
-          xcrun swiftc -swift-version 5 Widget/WeatherService.swift Widget/WidgetLocation.swift Widget/AppleWeatherInput.swift Widget/GlassSmallForecast.swift Widget/ActivityData.swift Tests/WeatherTests.swift -o /tmp/clearwidget-weather-tests
+          xcrun swiftc -swift-version 5 Widget/WeatherService.swift Widget/WidgetLocation.swift Widget/AppleWeatherInput.swift Widget/GlassSmallForecast.swift Widget/ActivityData.swift Widget/ShortcutReceipt.swift Tests/WeatherTests.swift -o /tmp/clearwidget-weather-tests
           /tmp/clearwidget-weather-tests
       - name: Test interaction fast path
         run: |
@@ -97,23 +97,24 @@ jobs:
           for path, bundle in zip(sys.argv[1:], ["com.clearwidget.app", "com.clearwidget.app.widget"]):
               p = plistlib.loads((pathlib.Path(path) / "Info.plist").read_bytes())
               assert p["CFBundleIdentifier"] == bundle, p
-              assert p["CFBundleShortVersionString"] == "0.5.8", p
-              assert p["CFBundleVersion"] == "14", p
+              assert p["CFBundleShortVersionString"] == "0.5.9", p
+              assert p["CFBundleVersion"] == "15", p
               assert p["CFBundleDisplayName"] == chr(0x2800), p
           print("Verified both final bundle identifiers, display names and versions")
           PY
           python3 Tools/check_shortcut_metadata.py "$app" "$ext"
           mkdir -p Payload
           cp -R "$app" Payload/
-          zip -qry ClearWidget-v0.5.8.ipa Payload
-          unzip -t ClearWidget-v0.5.8.ipa
+          zip -qry ClearWidget-v0.5.9.ipa Payload
+          unzip -t ClearWidget-v0.5.9.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: ClearWidget-v0.5.8
-          path: ClearWidget-v0.5.8.ipa
+          name: ClearWidget-v0.5.9
+          path: ClearWidget-v0.5.9.ipa
           if-no-files-found: error
 
   recovery:
+    if: github.ref_name != 'v0.5.9-shortcuts'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

@@ -58,24 +58,13 @@ struct ClearWidgetApp: App {
                     }
                     Section("Actividad y diagnóstico") {
                         Text("En Salud, habilitá la escritura de Mi Fitness. El widget recibe totales de una sola fuente mediante Guardar actividad ClearWidget. Elegí la fuente en Editar widget.")
-                        Text("Ejecutá Diagnóstico ClearWidget en Atajos para consultar los datos de la extensión.")
+                        Text("Ejecutá Diagnóstico ClearWidget en Atajos para comprobar la ejecución directa en la extensión y la recepción del timeline.")
                         Button("Registrar acciones de Atajos") {
                             ClearWidgetShortcuts.updateAppShortcutParameters()
                             shortcutsStatus = "Registro solicitado a iOS; no confirma que Atajos las muestre."
                         }
                         Link("Abrir Atajos para ejecutar el diagnóstico", destination: URL(string: "shortcuts://")!)
-                        Button("Probar comunicación con el widget") {
-                            do {
-                                try ShortcutBridge.beginProbe()
-                                shortcutsStatus = "Prueba escrita en el grupo compartido. iOS debe actualizar el widget; después consultá el resultado."
-                                WidgetCenter.shared.reloadTimelines(ofKind: "ClearWidget")
-                            } catch { shortcutsStatus = error.localizedDescription }
-                        }
-                        Button("Consultar recepción y navegación") {
-                            do { shortcutsStatus = try ShortcutBridge.diagnostic() }
-                            catch { shortcutsStatus = error.localizedDescription }
-                        }
-                        Text("La recepción y los tiempos se consultan aquí, aunque Atajos no muestre las acciones. Si aparece -34018, la firma instalada no permite el grupo compartido.").font(.caption)
+                        Text("Las acciones escriben directamente en WidgetKit. No necesitan el puente Keychain compartido. El diagnóstico anterior de la app no verifica esta ruta.").font(.caption)
                         Text(shortcutsStatus).font(.footnote)
                     }
                     Section("Firma") { SigningPanel(); ClearSignSetupPanel(); ClearRecoveryExportPanel() }

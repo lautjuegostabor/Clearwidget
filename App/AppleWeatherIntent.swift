@@ -2,25 +2,65 @@ import AppIntents
 import WidgetKit
 import Foundation
 
-// Host-only discovery and execution. Only widget data uses the shared group.
+// The host registers the actions; only the widget extension may perform them.
+// Both targets contain the same intent types and metadata.
+private enum ShortcutTargetError: LocalizedError {
+    case wrongTarget, readbackFailed
+    var errorDescription: String? {
+        switch self {
+        case .wrongTarget: return "iOS no ejecutó la acción en la extensión WidgetKit (build 15). No se guardaron datos."
+        case .readbackFailed: return "No se pudo verificar la escritura en la extensión."
+        }
+    }
+}
 private actor ShortcutWriter {
     static let shared = ShortcutWriter()
-    func weather(_ json: String) throws { try ShortcutBridge.storeWeather(json) }
-    func activity(_ source: String, _ steps: Int, _ kcal: Double) throws { try ShortcutBridge.storeActivity(source: source, steps: steps, kcal: kcal) }
-    func diagnostic() throws -> String { try ShortcutBridge.diagnostic() }
+    private func checkTarget() throws {
+        guard Bundle.main.bundleURL.pathExtension == "appex",
+              Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "15"
+        else { throw ShortcutTargetError.wrongTarget }
+    }
+    func weather(_ json: String) throws {
+        try checkTarget()
+        let now = Date()
+        let cache = try AppleWeatherInput.parse(json, at: now)
+        guard let location = cache.location else { throw AppleWeatherError.invalid }
+        try ForecastDisk.updateLocation(location)
+        try ForecastDisk.save(cache, key: ForecastDisk.appleKey)
+        guard ForecastDisk.apple?.fetchedAt == now,
+              ForecastDisk.cached(at: now)?.source == "apple"
+        else { throw ShortcutTargetError.readbackFailed }
+        ShortcutReceipt.start(kind: "clima", at: now)
+    }
+    func activity(_ source: String, _ steps: Int, _ kcal: Double) throws {
+        try checkTarget()
+        let now = Date()
+        try ActivityDisk.save(source: source, steps: steps, kcal: kcal, at: now)
+        guard let stored = ActivityDisk.read(source: source, at: now),
+              stored.steps == steps, stored.activeKcal == kcal, stored.fetchedAt == now
+        else { throw ShortcutTargetError.readbackFailed }
+        ShortcutReceipt.start(kind: "actividad", at: now)
+    }
+    func diagnostic() throws -> String {
+        try checkTarget()
+        let receipt = ShortcutReceipt.status()
+        if receipt == nil { ShortcutReceipt.start(kind: "diagnóstico", at: Date()) }
+        let data = receipt ?? "Prueba local creada; ejecutá el diagnóstico nuevamente después de que iOS actualice el widget."
+        return "Atajos: ejecución directa en WidgetKit · build 15. " + data + " " + WidgetInteraction.diagnostic()
+    }
 }
 struct AppleWeatherUpdateIntent: AppIntent {
     static var title: LocalizedStringResource = "Guardar clima de Apple"
     static var description = IntentDescription("Guarda un pronóstico de Apple para ClearWidget.")
     static var isDiscoverable = true
     static var openAppWhenRun = false
-    static var allowedExecutionTargets: IntentExecutionTargets { .main }
+    static var allowedExecutionTargets: IntentExecutionTargets { .widgetKitExtension }
     @Parameter(title: "Pronóstico JSON") var forecastJSON: String
     static var parameterSummary: some ParameterSummary { Summary("Guardar clima de Apple \(\.$forecastJSON)") }
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
         try await ShortcutWriter.shared.weather(forecastJSON)
         WidgetCenter.shared.reloadTimelines(ofKind: "ClearWidget")
-        return .result(value: "Pronóstico guardado en el puente local. Recarga solicitada; consultá el diagnóstico para confirmar la recepción.")
+        return .result(value: "Pronóstico guardado y releído dentro de WidgetKit. Recarga solicitada; Diagnóstico ClearWidget permite comprobar el timeline.")
     }
 }
 struct ActivityUpdateIntent: AppIntent {
@@ -28,7 +68,7 @@ struct ActivityUpdateIntent: AppIntent {
     static var description = IntentDescription("Guarda totales de una sola fuente sin enviar datos fuera del dispositivo.")
     static var isDiscoverable = true
     static var openAppWhenRun = false
-    static var allowedExecutionTargets: IntentExecutionTargets { .main }
+    static var allowedExecutionTargets: IntentExecutionTargets { .widgetKitExtension }
     @Parameter(title: "Fuente") var source: String
     @Parameter(title: "Pasos") var steps: Int
     @Parameter(title: "Calorías activas (kcal)") var kcal: Double
@@ -36,20 +76,21 @@ struct ActivityUpdateIntent: AppIntent {
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
         try await ShortcutWriter.shared.activity(source, steps, kcal)
         WidgetCenter.shared.reloadTimelines(ofKind: "ClearWidget")
-        return .result(value: "Actividad guardada en el puente local. Recarga solicitada; consultá el diagnóstico para confirmar la recepción.")
+        return .result(value: "Actividad guardada y releída dentro de WidgetKit. Recarga solicitada; Diagnóstico ClearWidget permite comprobar el timeline.")
     }
 }
 struct ClearWidgetStatusIntent: AppIntent {
     static var title: LocalizedStringResource = "Diagnóstico ClearWidget"
     static var isDiscoverable = true
     static var openAppWhenRun = false
-    static var allowedExecutionTargets: IntentExecutionTargets { .main }
+    static var allowedExecutionTargets: IntentExecutionTargets { .widgetKitExtension }
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
         let result = try await ShortcutWriter.shared.diagnostic()
         WidgetCenter.shared.reloadTimelines(ofKind: "ClearWidget")
         return .result(value: result)
     }
 }
+#if CLEARWIDGET_HOST
 struct ClearWidgetShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: AppleWeatherUpdateIntent(), phrases: ["Guardar clima en \(.applicationName)"], shortTitle: "Guardar clima de Apple", systemImageName: "cloud.sun")
@@ -57,4 +98,4 @@ struct ClearWidgetShortcuts: AppShortcutsProvider {
         AppShortcut(intent: ClearWidgetStatusIntent(), phrases: ["Diagnóstico de \(.applicationName)"], shortTitle: "Diagnóstico ClearWidget", systemImageName: "info.circle")
     }
 }
-
+#endif

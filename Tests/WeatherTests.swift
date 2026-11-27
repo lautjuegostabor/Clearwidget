@@ -78,6 +78,20 @@ struct WeatherTests {
         precondition(!ActivityDisk.valid(item,at: item.fetchedAt.addingTimeInterval(86401)))
         precondition(ActivityDisk.normalize("  MI Fitness ") == ActivityDisk.normalize("Mi Fitness"))
         precondition(!ActivityDisk.valid(ActivityReading(source: "",steps: 1,activeKcal: 0,fetchedAt: item.fetchedAt),at: item.fetchedAt))
-        print("Weather and activity tests passed")
+        let suite = "ClearWidget.ShortcutReceipt.tests." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        precondition(ShortcutReceipt.status(at: now, defaults: defaults) == nil)
+        ShortcutReceipt.start(kind: "diagnóstico", at: now, defaults: defaults)
+        precondition(ShortcutReceipt.status(at: now, defaults: defaults)?.contains("pendiente") == true)
+        ShortcutReceipt.confirmTimeline(at: now.addingTimeInterval(-1), weather: "apple", activity: nil, defaults: defaults)
+        precondition(ShortcutReceipt.status(at: now, defaults: defaults)?.contains("pendiente") == true)
+        ShortcutReceipt.confirmTimeline(at: now.addingTimeInterval(1), weather: "apple", activity: "Mi Fitness", defaults: defaults)
+        precondition(ShortcutReceipt.status(at: now.addingTimeInterval(1), defaults: defaults)?.contains("Timeline confirmado") == true)
+        ShortcutReceipt.confirmTimeline(at: now.addingTimeInterval(2), weather: "openmeteo", activity: nil, defaults: defaults)
+        precondition(ShortcutReceipt.status(at: now.addingTimeInterval(2), defaults: defaults)?.contains("Mi Fitness") == true)
+        ShortcutReceipt.start(kind: "actividad", at: now.addingTimeInterval(3), defaults: defaults)
+        precondition(ShortcutReceipt.status(at: now.addingTimeInterval(3), defaults: defaults)?.contains("pendiente") == true)
+        print("Weather, activity and widget-local receipt tests passed")
     }
 }

@@ -186,7 +186,11 @@ private struct Provider: AppIntentTimelineProvider {
             if tap { battery = BatteryReader.cached(at: date) }
             else { battery = await BatteryReader.level() }
         }
-        let timeline = Timeline(entries: [entry(at: date, configuration: configuration, family: context.family, cache: cache, battery: battery)], policy: .after(next))
+        let currentEntry = entry(at: date, configuration: configuration, family: context.family, cache: cache, battery: battery)
+        if !context.isPreview {
+            ShortcutReceipt.confirmTimeline(at: date, weather: currentEntry.weatherSource, activity: currentEntry.activity?.source)
+        }
+        let timeline = Timeline(entries: [currentEntry], policy: .after(next))
         if let mark { WidgetInteraction.finish(mark, started: started, ended: ProcessInfo.processInfo.systemUptime) }
         return timeline
     }
