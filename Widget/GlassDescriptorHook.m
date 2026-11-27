@@ -14,7 +14,8 @@ static NSString * const CWKind = @"ClearWidget";
 // The native host may select glass for preferred style 2 in normal appearance.
 // Both Blur and experimental Glass request that same verified descriptor style;
 // there is no proven independent glass/blur selector in iOS 27.
-extern int32_t CWReadAppearance(void);
+extern int32_t CWReadAppearance(uint64_t *revision);
+extern void CWReportAppearance(int32_t mode,uint64_t revision,int32_t outcome);
 typedef NS_ENUM(NSInteger, CWAppearance) {
     CWAppearanceSystem=0, CWAppearanceClear=1, CWAppearanceBlur=2, CWAppearanceGlass=3
 };
@@ -184,12 +185,15 @@ static void CWForward(CWFetchIMP original,id self,SEL command,CWCompletion compl
             completed=YES;
         }
         id patched=result;
+        uint64_t revision=0;
+        int32_t mode=CWReadAppearance(&revision);
         @try {
             patched=CWPatchResult(result,
                 NSClassFromString(@"_TtC9WidgetKit21DescriptorFetchResult"),
                 NSClassFromString(@"CHSWidgetDescriptor"),
-                NSClassFromString(@"CHSControlDescriptor"),CWReadAppearance());
+                NSClassFromString(@"CHSControlDescriptor"),mode);
         } @catch (NSException *exception) { (void)exception; patched=result; }
+        CWReportAppearance(mode,revision,mode==CWAppearanceSystem ? 0 : (patched!=result ? 1 : 2));
         completion(patched);
     });
 }
@@ -216,8 +220,13 @@ void CWInstallGlassDescriptorHook(void) {
     if (@available(iOS 27.0,*)) {
         @synchronized(CWGlassArchiveDelegate.class) {
             Class server=NSClassFromString(@"_TtCC9WidgetKit24WidgetExtensionXPCServer14ExportedObject");
-            CWInstall(server,NSSelectorFromString(@"getAllCurrentDescriptorsWithCompletion:"),(IMP)CWAll,&CWOriginalAll);
-            CWInstall(server,NSSelectorFromString(@"getCurrentDescriptorsWithCompletion:"),(IMP)CWCurrent,&CWOriginalCurrent);
+            BOOL all=CWInstall(server,NSSelectorFromString(@"getAllCurrentDescriptorsWithCompletion:"),(IMP)CWAll,&CWOriginalAll);
+            BOOL current=CWInstall(server,NSSelectorFromString(@"getCurrentDescriptorsWithCompletion:"),(IMP)CWCurrent,&CWOriginalCurrent);
+            if (!all && !current) {
+                uint64_t revision=0;
+                int32_t mode=CWReadAppearance(&revision);
+                if (mode!=CWAppearanceSystem) CWReportAppearance(mode,revision,3);
+            }
         }
     }
 }

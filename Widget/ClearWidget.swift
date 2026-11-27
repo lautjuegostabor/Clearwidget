@@ -192,6 +192,7 @@ private struct Provider: AppIntentTimelineProvider {
         }
         let currentEntry = entry(at: date, configuration: configuration, family: context.family, cache: cache, battery: battery)
         if !context.isPreview {
+            AppearancePreference.acknowledgeTimeline()
             ShortcutReceipt.confirmTimeline(at: date, weatherSource: currentEntry.weatherSource,
                                             weatherFetchedAt: currentEntry.displayedWeatherFetchedAt, activity: currentEntry.activity)
         }

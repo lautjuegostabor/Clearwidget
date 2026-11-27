@@ -32,6 +32,7 @@ struct ClearWidgetApp: App {
                         Text("Versión " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—") + " · Build " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"))
                         Text(installedWidgets)
                         Button("Consultar widgets añadidos") {
+                            installedWidgets = "Consultando widgets…"
                             WidgetCenter.shared.getCurrentConfigurations { result in
                                 let message: String
                                 switch result {

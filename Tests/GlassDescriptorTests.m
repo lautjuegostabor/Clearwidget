@@ -2,7 +2,8 @@
 #import <objc/runtime.h>
 #import <stdlib.h>
 #import <stdint.h>
-int32_t CWReadAppearance(void) { return 0; }
+int32_t CWReadAppearance(uint64_t *revision) { if (revision) *revision=0; return 0; }
+void CWReportAppearance(int32_t mode,uint64_t revision,int32_t outcome) { (void)mode;(void)revision;(void)outcome; }
 extern id CWTestPatchMode(id,Class,Class,Class,NSInteger);
 extern id CWTestPatch(id,Class,Class,Class);
 extern BOOL CWTestFetchSignature(Method);

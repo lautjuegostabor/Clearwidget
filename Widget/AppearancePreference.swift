@@ -26,61 +26,69 @@ enum WidgetAppearance: Int, AppEnum, CaseIterable {
     }
 }
 
-// No new signing capability: use extension-local preferences, and the existing
-// narrow keychain bridge only when both targets actually have access.
-struct AppearanceRecord: Codable, Equatable {
-    let mode: Int
-    let changedAt: Date
-    var selection: WidgetAppearance? {
-        guard changedAt.timeIntervalSinceReferenceDate.isFinite else { return nil }
-        return WidgetAppearance(rawValue: mode)
-    }
+extension AppearanceRecord {
+    var selection: WidgetAppearance? { valid ? WidgetAppearance(rawValue: mode) : nil }
 }
 
 enum AppearancePreference {
     private static let key = "clearwidget.appearance.v1"
     static var isExtension: Bool { Bundle.main.bundleURL.pathExtension == "appex" }
-    private static func local() -> AppearanceRecord? {
+    static func local() -> AppearanceRecord? {
         guard let bytes = UserDefaults.standard.data(forKey: key),
               let record = try? JSONDecoder().decode(AppearanceRecord.self, from: bytes),
-              record.selection != nil else { return nil }
+              record.valid else { return nil }
         return record
     }
     private static func shared() -> AppearanceRecord? {
-        guard let record = try? ShortcutBridge.readAppearance(), record.selection != nil else { return nil }
+        guard let record = try? ShortcutBridge.readAppearance(), record.valid else { return nil }
         return record
     }
+    private static func saveLocal(_ record: AppearanceRecord) throws {
+        UserDefaults.standard.set(try JSONEncoder().encode(record), forKey: key)
+        guard local() == record else { throw AppearanceError.notSaved }
+    }
     static func latest(_ a: AppearanceRecord?, _ b: AppearanceRecord?) -> AppearanceRecord? {
-        let valid = [a,b].compactMap { $0 }.filter { $0.selection != nil }
-        return valid.max { $0.changedAt < $1.changedAt }
+        [a,b].compactMap { $0 }.filter(\.valid).max { $0.changedAt < $1.changedAt }
     }
-    static func current() -> WidgetAppearance {
-        latest(local(), shared())?.selection ?? .system
+    static func currentRecord() -> AppearanceRecord? {
+        let record = latest(local(), shared())
+        if isExtension, let record, record != local() { try? saveLocal(record) }
+        return record
     }
-    // Only report a confirmed selection to the app when the extension has
-    // actually read and acknowledged the same record.
-    static func confirmedInWidget() -> WidgetAppearance? {
-        guard let requested = shared(), let ack = try? ShortcutBridge.readAppearanceReceipt(),
-              requested == ack else { return nil }
-        return ack.selection
-    }
-    static func acknowledgeIfPossible() {
-        guard isExtension, let record = latest(local(),shared()) else { return }
-        try? ShortcutBridge.writeAppearanceReceipt(record)
-    }
+    static func current() -> WidgetAppearance { currentRecord()?.selection ?? .system }
+
     static func select(_ mode: WidgetAppearance) throws {
-        let record = AppearanceRecord(mode: mode.rawValue, changedAt: Date())
-        let data = try JSONEncoder().encode(record)
+        let previous = currentRecord()?.changedAt ?? .distantPast
+        let now = Date()
+        let date = now > previous ? now : previous.addingTimeInterval(0.001)
+        let record = AppearanceRecord(mode: mode.rawValue, changedAt: date)
+        try saveLocal(record)
         if isExtension {
-            UserDefaults.standard.set(data, forKey:key)
-            guard local() == record else { throw AppearanceError.notSaved }
             try? ShortcutBridge.writeAppearance(record)
         } else {
-            // Button(intent:) is system-dispatched; never claim a host-only
-            // write succeeded when the signed bridge cannot be used.
             try ShortcutBridge.writeAppearance(record)
             guard shared() == record else { throw AppearanceError.notSaved }
-            UserDefaults.standard.set(data, forKey:key)
+        }
+    }
+    static func delivery() throws -> AppearanceDelivery {
+        guard let request = latest(local(), shared()) else { return .initial }
+        guard try ShortcutBridge.readAppearance() == request else { return .pending }
+        return AppearanceDelivery.resolve(request: request, timeline: try ShortcutBridge.readAppearanceReceipt(),
+            descriptor: try ShortcutBridge.readAppearanceDescriptorReceipt())
+    }
+    static func acknowledgeTimeline() {
+        guard isExtension, let record = currentRecord() else { return }
+        if (try? ShortcutBridge.readAppearanceReceipt()) != record {
+            try? ShortcutBridge.writeAppearanceReceipt(record)
+        }
+    }
+    static func report(mode: Int32, revision: UInt64, outcome: Int32) {
+        guard isExtension, let record = currentRecord(),
+              record.mode == Int(mode), record.revision == revision,
+              let result = AppearanceDescriptorOutcome(rawValue: Int(outcome)) else { return }
+        let receipt = AppearanceDescriptorReceipt(record: record, outcome: result)
+        if (try? ShortcutBridge.readAppearanceDescriptorReceipt()) != receipt {
+            try? ShortcutBridge.writeAppearanceDescriptorReceipt(receipt)
         }
     }
 }
@@ -89,13 +97,15 @@ private enum AppearanceError: LocalizedError {
     var errorDescription: String? { "No se pudo confirmar la escritura de la apariencia." }
 }
 
-// C ABI called synchronously by the descriptor hook in the widget process.
-// It reads the selected value at each fetch; no polling or timer.
 @_cdecl("CWReadAppearance")
-func CWReadAppearance() -> Int32 {
-    let mode = AppearancePreference.current()
-    AppearancePreference.acknowledgeIfPossible()
-    return Int32(mode.rawValue)
+func CWReadAppearance(_ revision: UnsafeMutablePointer<UInt64>?) -> Int32 {
+    let record = AppearancePreference.currentRecord()
+    revision?.pointee = record?.revision ?? 0
+    return Int32(record?.mode ?? 0)
+}
+@_cdecl("CWReportAppearance")
+func CWReportAppearance(_ mode: Int32, _ revision: UInt64, _ outcome: Int32) {
+    AppearancePreference.report(mode: mode, revision: revision, outcome: outcome)
 }
 
 struct SelectWidgetAppearance: AppIntent {
