@@ -65,3 +65,5 @@ enum WeatherShortcutRecipe {
         return try PropertyListSerialization.data(fromPropertyList: ["actions": a], format: .xml, options: 0)
     }
 }
+
+// Clipboard generation is local-only; actual editor paste requires device verification.
