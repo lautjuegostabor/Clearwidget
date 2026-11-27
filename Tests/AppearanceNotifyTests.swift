@@ -3,15 +3,29 @@ import Foundation
 @main struct AppearanceNotifyTests {
     static func main() throws {
         let args = CommandLine.arguments
-        let base = "com.clearwidget.app"
-        precondition(AppearanceWire.namespace(bundleID:base+".ABC") == AppearanceWire.namespace(bundleID:base+".widget.ABC"))
-        precondition(AppearanceWire.namespace(bundleID:base) == AppearanceWire.namespace(bundleID:base+".widget"))
-        precondition(AppearanceWire.namespace(bundleID:"com.other") == nil)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("ClearWidget.app")
+        defer { try? FileManager.default.removeItem(at:folder.deletingLastPathComponent()) }
+        let appex = folder.appendingPathComponent("PlugIns/ClearWidgetExtension.appex")
+        try FileManager.default.createDirectory(at:appex,withIntermediateDirectories:true)
+        for host in ["com.clearwidget.app", "com.clearwidget.app.ABC", "com.reused.identifier.ABC"] {
+            let info = try PropertyListSerialization.data(fromPropertyList:["CFBundleIdentifier":host],format:.xml,options:0)
+            try info.write(to:folder.appendingPathComponent("Info.plist"))
+            let appID = AppearanceWire.hostBundleID(bundleURL:folder,bundleID:host)
+            let extID = AppearanceWire.hostBundleID(bundleURL:appex,bundleID:host+".widget")
+            precondition(appID == host && extID == host)
+            precondition(AppearanceWire.namespace(hostBundleID:appID!) == AppearanceWire.namespace(hostBundleID:extID!))
+            precondition(AppearanceWire.hostBundleID(bundleURL:appex,bundleID:"com.wrong.widget") == nil)
+        }
+        precondition(AppearanceWire.namespace(hostBundleID:"") == nil)
+        precondition(AppearanceWire.namespace(hostBundleID:"a/b") == nil)
         let record = AppearanceRecord(mode:3,changedAt:Date(timeIntervalSinceReferenceDate:123456789.123))
-        for tag in UInt64(0)...7 {
-            let raw = AppearanceWire.encode(record,tag:tag)!
-            precondition(AppearanceWire.decode(raw,tag:tag) == record)
-            precondition(AppearanceWire.decode(raw,tag:(tag+1)%8) == nil)
+        for mode in 0...3 {
+            let r = AppearanceRecord(mode:mode,changedAt:record.changedAt)
+            for tag in UInt64(0)...7 {
+                let raw = AppearanceWire.encode(r,tag:tag)!
+                precondition(AppearanceWire.decode(raw,tag:tag) == r)
+                precondition(AppearanceWire.decode(raw,tag:(tag+1)%8) == nil)
+            }
         }
         precondition(AppearanceWire.decode(0,tag:0) == nil)
         let bus = try AppearanceNotifyBus(namespace:args[2])

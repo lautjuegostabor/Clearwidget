@@ -16,19 +16,24 @@ enum AppearanceWire {
             changedAt: Date(timeIntervalSinceReferenceDate: Double(raw >> 5) / 1000))
         return record.valid && record.revision == raw >> 5 ? record : nil
     }
-    static func namespace(bundleID: String) -> String? {
-        let host = "com.clearwidget.app"
-        let extensionID = host + ".widget"
-        let canonical: String
-        if bundleID == extensionID || bundleID.hasPrefix(extensionID + ".") {
-            canonical = host + String(bundleID.dropFirst(extensionID.count))
-        } else if bundleID == host || bundleID.hasPrefix(host + ".") {
-            canonical = bundleID
-        } else { return nil }
-        guard canonical.utf8.count <= 150,
-              canonical.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 46 || $0 == 45 })
-        else { return nil }
-        return canonical + ".appearance.notify.v1"
+    // BariStore makes extension IDs children of the effective host ID, and can
+    // reuse an arbitrary App ID. Read the actual container's signed Info.plist,
+    // not a guessed suffix or the original project bundle identifier.
+    static func hostBundleID(bundleURL: URL, bundleID: String) -> String? {
+        if bundleURL.pathExtension != "appex" { return bundleID }
+        let plugins = bundleURL.deletingLastPathComponent()
+        let host = plugins.deletingLastPathComponent()
+        guard plugins.lastPathComponent == "PlugIns", host.pathExtension == "app",
+              let bytes = try? Data(contentsOf: host.appendingPathComponent("Info.plist")), bytes.count <= 1_000_000,
+              let plist = try? PropertyListSerialization.propertyList(from: bytes, options: [], format: nil) as? [String: Any],
+              let identifier = plist["CFBundleIdentifier"] as? String,
+              !identifier.isEmpty, bundleID.hasPrefix(identifier + ".") else { return nil }
+        return identifier
+    }
+    static func namespace(hostBundleID: String) -> String? {
+        guard !hostBundleID.isEmpty, hostBundleID.utf8.count <= 155,
+              hostBundleID.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 46 || $0 == 45 }) else { return nil }
+        return hostBundleID + ".clearwidget.appearance.notify.v2"
     }
 }
 enum AppearanceNotifyError: LocalizedError {
@@ -50,7 +55,7 @@ final class AppearanceNotifyChannel {
         guard status == 0 else { throw AppearanceNotifyError.operation("registro",status) }
         token = t
     }
-    deinit { CWNotifyCancel(token) }
+    deinit { _ = CWNotifyCancel(token) }
     func read() throws -> UInt64 {
         var value: UInt64 = 0
         let status = CWNotifyGetState(token,&value)
@@ -74,11 +79,16 @@ final class AppearanceNotifyBus {
     }
     // Retain registration tokens for the lifetime of each cooperating process.
     // The state is transient; the actual preference is saved locally in each process.
-    static let instance: Result<AppearanceNotifyBus, Error> = Result {
-        guard let name = AppearanceWire.namespace(bundleID: Bundle.main.bundleIdentifier ?? "") else {
-            throw AppearanceNotifyError.invalidNamespace
-        }
-        return try AppearanceNotifyBus(namespace: name)
+    private static let lock = NSLock()
+    private static var cached: AppearanceNotifyBus?
+    static func shared() throws -> AppearanceNotifyBus {
+        lock.lock(); defer { lock.unlock() }
+        if let cached { return cached }
+        guard let host = AppearanceWire.hostBundleID(bundleURL: Bundle.main.bundleURL, bundleID: Bundle.main.bundleIdentifier ?? ""),
+              let name = AppearanceWire.namespace(hostBundleID: host) else { throw AppearanceNotifyError.invalidNamespace }
+        let result = try AppearanceNotifyBus(namespace: name)
+        cached = result
+        return result
     }
     func readRequest() throws -> AppearanceRecord? {
         AppearanceWire.decode(try request.read(),tag:7)

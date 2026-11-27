@@ -44,7 +44,7 @@ enum AppearancePreference {
         UserDefaults.standard.set(try JSONEncoder().encode(record),forKey:key)
         guard local() == record else { throw AppearanceError.notSaved }
     }
-    private static func bus() throws -> AppearanceNotifyBus { try AppearanceNotifyBus.instance.get() }
+    private static func bus() throws -> AppearanceNotifyBus { try AppearanceNotifyBus.shared() }
     static func currentRecord() -> AppearanceRecord? {
         lock.lock(); defer { lock.unlock() }
         let stored = local()

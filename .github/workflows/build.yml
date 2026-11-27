@@ -61,8 +61,9 @@ jobs:
       - name: Verify appearance IPC across two independent macOS processes
         run: |
           set -euo pipefail
-          xcrun --sdk macosx clang -x c -fsyntax-only -Wall -Wextra -Werror Native/AppearanceNotify/include/CWNotify.h
-          xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=27.0 -fapplication-extension -x c -fsyntax-only -Wall -Wextra -Werror Native/AppearanceNotify/include/CWNotify.h
+          xcrun --sdk macosx clang -fsyntax-only -Wall -Wextra -Werror -I Native/AppearanceNotify/include Tests/AppearanceNotifySDKProbe.c
+          xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=27.0 -fapplication-extension -fsyntax-only -Wall -Wextra -Werror -I Native/AppearanceNotify/include Tests/AppearanceNotifySDKProbe.c
+          xcrun --sdk iphoneos swiftc -swift-version 5 -target arm64-apple-ios27.0 -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" -I Native/AppearanceNotify/include -typecheck Widget/AppearanceState.swift Widget/AppearanceNotify.swift Tests/AppearanceNotifyTests.swift
           xcrun swiftc -swift-version 5 -I Native/AppearanceNotify/include Widget/AppearanceState.swift Widget/AppearanceNotify.swift Tests/AppearanceNotifyTests.swift -o /tmp/cw-notify-tests
           marker="$(mktemp -d)/ready"
           scope="com.clearwidget.citest.$(uuidgen)"
