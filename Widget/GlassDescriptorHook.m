@@ -8,9 +8,17 @@
 #import <stdbool.h>
 #import <string.h>
 #import <stdlib.h>
+#import <stdint.h>
 
 static NSString * const CWKind = @"ClearWidget";
-static const NSInteger CWBlurStyle = 2;
+// The native host may select glass for preferred style 2 in normal appearance.
+// Both Blur and experimental Glass request that same verified descriptor style;
+// there is no proven independent glass/blur selector in iOS 27.
+extern int32_t CWReadAppearance(void);
+typedef NS_ENUM(NSInteger, CWAppearance) {
+    CWAppearanceSystem=0, CWAppearanceClear=1, CWAppearanceBlur=2, CWAppearanceGlass=3
+};
+static BOOL CWActiveMode(NSInteger mode) { return mode>=CWAppearanceClear && mode<=CWAppearanceGlass; }
 
 static BOOL CWMethodMatches(Method m, char result, unsigned int count) {
     if (!m || method_getNumberOfArguments(m) != count) return NO;
@@ -62,10 +70,10 @@ static BOOL CWIsOwnDescriptor(id obj, Class descriptorClass, Class controlClass)
 }
 
 // Always style an independent copy. Never leave a partially modified original on error.
-static id CWStyledCopy(id descriptor) {
-    if (![descriptor respondsToSelector:@selector(copyWithZone:)]) return nil;
-    id copy = [descriptor copy];
-    if (!copy || copy == descriptor || object_getClass(copy) != object_getClass(descriptor)) return nil;
+static id CWStyledCopy(id descriptor, Class descriptorClass, NSInteger mode) {
+    if (!CWActiveMode(mode) || ![descriptor respondsToSelector:@selector(mutableCopyWithZone:)]) return nil;
+    id copy = [descriptor mutableCopy];
+    if (!copy || copy == descriptor || ![copy isKindOfClass:descriptorClass]) return nil;
     SEL setters[] = {NSSelectorFromString(@"setBackgroundRemovable:"),
                      NSSelectorFromString(@"setTransparent:"),
                      NSSelectorFromString(@"setSupportsVibrantContent:"),
@@ -75,14 +83,22 @@ static id CWStyledCopy(id descriptor) {
         encodings[i]=CWScalarArg(copy,setters[i],i<3);
         if (!encodings[i]) return nil;
     }
-    for (NSUInteger i=0;i<4;i++) CWSetScalar(copy,setters[i],encodings[i],i<3 ? 1 : CWBlurStyle);
-    return copy;
+    // setTransparent: can itself reset style and vibrant flags. Write it
+    // first, then explicitly choose the observed native style.
+    NSInteger values[] = {1,1,mode==CWAppearanceClear ? 0 : 1,mode==CWAppearanceClear ? 1 : 2};
+    for (NSUInteger i=0;i<4;i++) CWSetScalar(copy,setters[i],encodings[i],values[i]);
+    // ChronoServices mutable descriptors copy back to their immutable class.
+    // This preserves the expected secure coding class on the XPC boundary.
+    id frozen=[copy copy];
+    if (!frozen || frozen==descriptor || ![frozen isKindOfClass:descriptorClass]) return nil;
+    return frozen;
 }
 
 @interface CWGlassArchiveDelegate : NSObject <NSKeyedArchiverDelegate>
 @property(nonatomic,assign) Class descriptorClass;
 @property(nonatomic,assign) Class controlClass;
 @property(nonatomic) BOOL failed;
+@property(nonatomic) NSInteger mode;
 @property(nonatomic) NSUInteger replacements;
 @property(nonatomic,strong) NSMapTable *copies;
 @property(nonatomic,strong) NSHashTable *replacementObjects;
@@ -96,7 +112,7 @@ static id CWStyledCopy(id descriptor) {
         if (!CWIsOwnDescriptor(object,self.descriptorClass,self.controlClass)) return object;
         id existing=[self.copies objectForKey:object];
         if (existing) return existing;
-        id copy=CWStyledCopy(object);
+        id copy=CWStyledCopy(object,self.descriptorClass,self.mode);
         if (!copy) {self.failed=YES;return object;}
         [self.copies setObject:copy forKey:object];
         [self.replacementObjects addObject:copy];
@@ -113,8 +129,8 @@ static id CWStyledCopy(id descriptor) {
 // Preserve the complete original result schema by letting its own coder serialize
 // all fields; replace only matching widget descriptors with independent copies.
 // No file, wallpaper image, network request, entitlement, or background timer.
-static id CWPatchResult(id original, Class resultClass, Class descriptorClass, Class controlClass) {
-    if (!original || !resultClass || !descriptorClass ||
+static id CWPatchResult(id original, Class resultClass, Class descriptorClass, Class controlClass, NSInteger mode) {
+    if (!CWActiveMode(mode) || !original || !resultClass || !descriptorClass ||
         object_getClass(original) != resultClass) return original;
     @try {
         Method encoder=class_getInstanceMethod(resultClass,@selector(encodeWithCoder:));
@@ -124,6 +140,7 @@ static id CWPatchResult(id original, Class resultClass, Class descriptorClass, C
         CWGlassArchiveDelegate *delegate=[CWGlassArchiveDelegate new];
         delegate.descriptorClass=descriptorClass;
         delegate.controlClass=controlClass;
+        delegate.mode=mode;
         NSPointerFunctionsOptions identity=NSPointerFunctionsStrongMemory|NSPointerFunctionsObjectPointerPersonality;
         delegate.copies=[[NSMapTable alloc] initWithKeyOptions:identity valueOptions:identity capacity:2];
         delegate.replacementObjects=[[NSHashTable alloc] initWithOptions:identity capacity:2];
@@ -170,8 +187,8 @@ static void CWForward(CWFetchIMP original,id self,SEL command,CWCompletion compl
         @try {
             patched=CWPatchResult(result,
                 NSClassFromString(@"_TtC9WidgetKit21DescriptorFetchResult"),
-                NSClassFromString(@"CHSBaseDescriptor"),
-                NSClassFromString(@"CHSControlDescriptor"));
+                NSClassFromString(@"CHSWidgetDescriptor"),
+                NSClassFromString(@"CHSControlDescriptor"),CWReadAppearance());
         } @catch (NSException *exception) { (void)exception; patched=result; }
         completion(patched);
     });
@@ -206,7 +223,8 @@ void CWInstallGlassDescriptorHook(void) {
 }
 
 #if defined(CW_GLASS_TESTING)
-id CWTestPatch(id original,Class result,Class desc,Class control) {return CWPatchResult(original,result,desc,control);}
+id CWTestPatch(id original,Class result,Class desc,Class control) {return CWPatchResult(original,result,desc,control,CWAppearanceBlur);}
+id CWTestPatchMode(id original,Class result,Class desc,Class control,NSInteger mode) {return CWPatchResult(original,result,desc,control,mode);}
 BOOL CWTestFetchSignature(Method method) {return CWFetchSignature(method);}
 BOOL CWTestInstall(Class cls,SEL sel,IMP replacement,IMP *saved) {
     CWFetchIMP previous=(CWFetchIMP)*saved;

@@ -1,6 +1,9 @@
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <stdlib.h>
+#import <stdint.h>
+int32_t CWReadAppearance(void) { return 0; }
+extern id CWTestPatchMode(id,Class,Class,Class,NSInteger);
 extern id CWTestPatch(id,Class,Class,Class);
 extern BOOL CWTestFetchSignature(Method);
 extern BOOL CWTestInstall(Class,SEL,IMP,IMP *);
@@ -8,13 +11,14 @@ static void check(BOOL ok,NSString *message) {
     if (!ok) {NSLog(@"FAIL: %@",message);exit(1);}
 }
 
-@interface CWTestDescriptor : NSObject <NSSecureCoding,NSCopying>
+@interface CWTestDescriptor : NSObject <NSSecureCoding,NSCopying,NSMutableCopying>
 @property(copy) NSString *kind;
 @property BOOL backgroundRemovable;
 @property BOOL transparent;
 @property BOOL supportsVibrantContent;
 @property NSInteger preferredBackgroundStyle;
 @end
+@interface CWTestMutableDescriptor : CWTestDescriptor @end
 @implementation CWTestDescriptor
 + (BOOL)supportsSecureCoding{return YES;}
 - (void)encodeWithCoder:(NSCoder *)c {
@@ -40,15 +44,30 @@ static void check(BOOL ok,NSString *message) {
     d.transparent=self.transparent;d.supportsVibrantContent=self.supportsVibrantContent;
     d.preferredBackgroundStyle=self.preferredBackgroundStyle;return d;
 }
+- (id)mutableCopyWithZone:(NSZone *)zone {
+    CWTestDescriptor *d=[[CWTestMutableDescriptor allocWithZone:zone] init];
+    d.kind=self.kind;d.backgroundRemovable=self.backgroundRemovable;
+    d.transparent=self.transparent;d.supportsVibrantContent=self.supportsVibrantContent;
+    d.preferredBackgroundStyle=self.preferredBackgroundStyle;return d;
+}
+@end
+@implementation CWTestMutableDescriptor
+- (id)copyWithZone:(NSZone *)zone {
+    CWTestDescriptor *d=[[CWTestDescriptor allocWithZone:zone] init];
+    d.kind=self.kind;d.backgroundRemovable=self.backgroundRemovable;
+    d.transparent=self.transparent;d.supportsVibrantContent=self.supportsVibrantContent;
+    d.preferredBackgroundStyle=self.preferredBackgroundStyle;return d;
+}
 @end
 @interface CWTestControl : CWTestDescriptor @end
 @implementation CWTestControl @end
 @interface CWTestNoCopy : CWTestDescriptor @end
 @implementation CWTestNoCopy
-- (id)copyWithZone:(NSZone *)zone {(void)zone;return self;}
+- (id)mutableCopyWithZone:(NSZone *)zone {(void)zone;return self;}
 @end
 @interface CWTestThrow : CWTestDescriptor @end
 @implementation CWTestThrow
+- (id)mutableCopyWithZone:(NSZone *)zone { CWTestThrow *d=[[CWTestThrow allocWithZone:zone] init];d.kind=self.kind;return d; }
 - (void)setPreferredBackgroundStyle:(NSInteger)style {(void)style;[NSException raise:@"Test" format:@"setter refused"];}
 @end
 @interface CWTestResult : NSObject <NSSecureCoding>
@@ -97,6 +116,15 @@ int main(void){@autoreleasepool{
     CWTestDescriptor *other=descriptor(CWTestDescriptor.class,@"OtherWidget");
     CWTestDescriptor *control=descriptor(CWTestControl.class,@"ClearWidget");
     CWTestResult *original=result(@[own,other],@[control]);
+    check(CWTestPatchMode(original,CWTestResult.class,CWTestDescriptor.class,CWTestControl.class,0)==original,@"system returns identical result");
+    check(CWTestPatchMode(original,CWTestResult.class,CWTestDescriptor.class,CWTestControl.class,99)==original,@"unknown mode returns identical result");
+    CWTestResult *clear=CWTestPatchMode(original,CWTestResult.class,CWTestDescriptor.class,CWTestControl.class,1);
+    CWTestDescriptor *c=clear.widgetDescriptors[0];
+    check(c.transparent && c.backgroundRemovable && !c.supportsVibrantContent && c.preferredBackgroundStyle==1,@"clear style");
+    CWTestResult *glass=CWTestPatchMode(original,CWTestResult.class,CWTestDescriptor.class,CWTestControl.class,3);
+    CWTestDescriptor *g=glass.widgetDescriptors[0];
+    check(g.transparent && g.backgroundRemovable && g.supportsVibrantContent && g.preferredBackgroundStyle==2,@"glass candidate requests native material");
+    check([g class]==CWTestDescriptor.class,@"mutable subclass converted back to immutable class");
     CWTestResult *changed=patch(original);
     check(changed!=original,@"new result");
     CWTestDescriptor *d=changed.widgetDescriptors[0];
