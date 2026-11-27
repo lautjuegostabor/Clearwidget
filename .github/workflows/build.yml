@@ -61,7 +61,9 @@ jobs:
       - name: Verify appearance IPC across two independent macOS processes
         run: |
           set -euo pipefail
-          xcrun swiftc -swift-version 5 Widget/AppearanceState.swift Widget/AppearanceNotify.swift Tests/AppearanceNotifyTests.swift -o /tmp/cw-notify-tests
+          xcrun --sdk macosx clang -x c -fsyntax-only -Wall -Wextra -Werror Native/AppearanceNotify/include/CWNotify.h
+          xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=27.0 -fapplication-extension -x c -fsyntax-only -Wall -Wextra -Werror Native/AppearanceNotify/include/CWNotify.h
+          xcrun swiftc -swift-version 5 -I Native/AppearanceNotify/include Widget/AppearanceState.swift Widget/AppearanceNotify.swift Tests/AppearanceNotifyTests.swift -o /tmp/cw-notify-tests
           marker="$(mktemp -d)/ready"
           scope="com.clearwidget.citest.$(uuidgen)"
           /tmp/cw-notify-tests producer "$scope" "$marker" &
@@ -79,7 +81,7 @@ jobs:
       - name: Preflight appearance and host Swift syntax
         run: |
           set -euo pipefail
-          xcrun swiftc -frontend -parse Widget/AppearanceState.swift Widget/AppearanceNotify.swift Widget/AppearancePreference.swift App/WidgetAppearancePanel.swift App/ClearWidgetApp.swift Widget/ShortcutBridge.swift
+          xcrun swiftc -frontend -parse -I Native/AppearanceNotify/include Widget/AppearanceState.swift Widget/AppearanceNotify.swift Widget/AppearancePreference.swift App/WidgetAppearancePanel.swift App/ClearWidgetApp.swift Widget/ShortcutBridge.swift
       - name: Test weather cache and forecast selection
         run: |
           set -euo pipefail

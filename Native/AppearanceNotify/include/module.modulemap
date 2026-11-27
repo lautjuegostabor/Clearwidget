@@ -1,0 +1,4 @@
+module CWNotify [system] {
+    header "CWNotify.h"
+    export *
+}

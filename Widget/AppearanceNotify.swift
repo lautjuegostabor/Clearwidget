@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CWNotify
 
 // Public Darwin Notify 64-bit state. ONLY a cosmetic selection travels here.
 // Namespace is device-global and not an authenticated or confidential IPC channel.
@@ -45,19 +46,19 @@ final class AppearanceNotifyChannel {
     private let token: Int32
     init(_ name: String) throws {
         var t: Int32 = -1
-        let status = name.withCString { notify_register_check($0, &t) }
+        let status = name.withCString { CWNotifyRegister($0, &t) }
         guard status == 0 else { throw AppearanceNotifyError.operation("registro",status) }
         token = t
     }
-    deinit { notify_cancel(token) }
+    deinit { CWNotifyCancel(token) }
     func read() throws -> UInt64 {
         var value: UInt64 = 0
-        let status = notify_get_state(token,&value)
+        let status = CWNotifyGetState(token,&value)
         guard status == 0 else { throw AppearanceNotifyError.operation("lectura",status) }
         return value
     }
     func write(_ value: UInt64) throws {
-        let status = notify_set_state(token,value)
+        let status = CWNotifySetState(token,value)
         guard status == 0 else { throw AppearanceNotifyError.operation("escritura",status) }
         guard try read() == value else { throw AppearanceNotifyError.readback }
     }
