@@ -64,6 +64,12 @@ jobs:
               data = z.read('Payload/ClearWidget.app/PlugIns/ClearWidgetExtension.appex/Assets.car')
           assert hashlib.sha256(data).hexdigest() == 'f8b9aa563c7565e16d4a65201c5aeff314d5099b4581551bf038b322d282a2e2'
           pathlib.Path('/tmp/clearwidget-original-Assets.car').write_bytes(data)
+          # Same exact 354px geometry emitted by Tools/generate_assets.py.
+          cut = round(354 * 1000 / 1600)
+          pathlib.Path('Widget/Small21BandGeometry.swift').write_text(
+              "import CoreGraphics\nenum Small21BandGeometry {\n"
+              f"    static let upperHeight: CGFloat = {1600*cut/354:.12f}\n"
+              "}\n")
           PY
       - name: Check live ECMWF response
         continue-on-error: true
