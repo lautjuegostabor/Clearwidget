@@ -2,7 +2,7 @@ name: Build ClearWidget IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration, v0.5.4-integration, v0.5.5-integration, v0.5.6-integration, v0.5.7-integration, v0.5.8-integration, v0.5.9-shortcuts, v0.5.10-native-weather, v0.5.11-weather-setup, v0.5.12-clipboard, v0.5.13-apple-text, v0.5.14-controls, v0.5.15-clearsign, v0.5.16-auth-controls, v0.5.17-baristore-auth, v0.5.18-native-glass, v0.5.19-appearance, v0.5.20-controls-fix]
+    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration, v0.5.4-integration, v0.5.5-integration, v0.5.6-integration, v0.5.7-integration, v0.5.8-integration, v0.5.9-shortcuts, v0.5.10-native-weather, v0.5.11-weather-setup, v0.5.12-clipboard, v0.5.13-apple-text, v0.5.14-controls, v0.5.15-clearsign, v0.5.16-auth-controls, v0.5.17-baristore-auth, v0.5.18-native-glass, v0.5.19-appearance, v0.5.20-controls-fix, v0.5.21-notify-bridge]
 permissions:
   contents: read
   actions: read
@@ -58,10 +58,28 @@ jobs:
           assert 'catch {' in panel
           print('Native app controls and error path verified in source')
           PY
+      - name: Verify appearance IPC across two independent macOS processes
+        run: |
+          set -euo pipefail
+          xcrun swiftc -swift-version 5 Widget/AppearanceState.swift Widget/AppearanceNotify.swift Tests/AppearanceNotifyTests.swift -o /tmp/cw-notify-tests
+          marker="$(mktemp -d)/ready"
+          scope="com.clearwidget.citest.$(uuidgen)"
+          /tmp/cw-notify-tests producer "$scope" "$marker" &
+          producer=$!
+          trap 'kill "$producer" 2>/dev/null || true' EXIT
+          for i in {1..100}; do
+            test ! -f "$marker" || break
+            sleep 0.05
+          done
+          test -f "$marker"
+          /tmp/cw-notify-tests consumer "$scope" "$marker"
+          wait "$producer"
+          trap - EXIT
+          ! grep -q 'ShortcutBridge\.' Widget/AppearancePreference.swift
       - name: Preflight appearance and host Swift syntax
         run: |
           set -euo pipefail
-          xcrun swiftc -frontend -parse Widget/AppearanceState.swift Widget/AppearancePreference.swift App/WidgetAppearancePanel.swift App/ClearWidgetApp.swift Widget/ShortcutBridge.swift
+          xcrun swiftc -frontend -parse Widget/AppearanceState.swift Widget/AppearanceNotify.swift Widget/AppearancePreference.swift App/WidgetAppearancePanel.swift App/ClearWidgetApp.swift Widget/ShortcutBridge.swift
       - name: Test weather cache and forecast selection
         run: |
           set -euo pipefail
@@ -155,8 +173,8 @@ jobs:
           for path, bundle in zip(sys.argv[1:], ["com.clearwidget.app", "com.clearwidget.app.widget"]):
               p = plistlib.loads((pathlib.Path(path) / "Info.plist").read_bytes())
               assert p["CFBundleIdentifier"] == bundle, p
-              assert p["CFBundleShortVersionString"] == "0.5.20", p
-              assert p["CFBundleVersion"] == "26", p
+              assert p["CFBundleShortVersionString"] == "0.5.21", p
+              assert p["CFBundleVersion"] == "27", p
               assert p["CFBundleDisplayName"] == chr(0x2800), p
           print("Verified both final bundle identifiers, display names and versions")
           PY
@@ -171,16 +189,16 @@ jobs:
           python3 Tools/check_shortcut_metadata.py "$app" "$ext"
           mkdir -p Payload
           cp -R "$app" Payload/
-          zip -qry ClearWidget-v0.5.20.ipa Payload
-          unzip -t ClearWidget-v0.5.20.ipa
+          zip -qry ClearWidget-v0.5.21.ipa Payload
+          unzip -t ClearWidget-v0.5.21.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: ClearWidget-v0.5.20
-          path: ClearWidget-v0.5.20.ipa
+          name: ClearWidget-v0.5.21
+          path: ClearWidget-v0.5.21.ipa
           if-no-files-found: error
 
   recovery:
-    if: github.ref_name != 'v0.5.9-shortcuts' && github.ref_name != 'v0.5.10-native-weather' && github.ref_name != 'v0.5.11-weather-setup' && github.ref_name != 'v0.5.12-clipboard' && github.ref_name != 'v0.5.13-apple-text' && github.ref_name != 'v0.5.14-controls' && github.ref_name != 'v0.5.15-clearsign' && github.ref_name != 'v0.5.16-auth-controls' && github.ref_name != 'v0.5.17-baristore-auth' && github.ref_name != 'v0.5.18-native-glass' && github.ref_name != 'v0.5.19-appearance' && github.ref_name != 'v0.5.20-controls-fix'
+    if: github.ref_name != 'v0.5.9-shortcuts' && github.ref_name != 'v0.5.10-native-weather' && github.ref_name != 'v0.5.11-weather-setup' && github.ref_name != 'v0.5.12-clipboard' && github.ref_name != 'v0.5.13-apple-text' && github.ref_name != 'v0.5.14-controls' && github.ref_name != 'v0.5.15-clearsign' && github.ref_name != 'v0.5.16-auth-controls' && github.ref_name != 'v0.5.17-baristore-auth' && github.ref_name != 'v0.5.18-native-glass' && github.ref_name != 'v0.5.19-appearance' && github.ref_name != 'v0.5.20-controls-fix' && github.ref_name != 'v0.5.21-notify-bridge'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

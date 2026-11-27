@@ -6,8 +6,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: '5.0'
-    MARKETING_VERSION: '0.5.20'
-    CURRENT_PROJECT_VERSION: '26'
+    MARKETING_VERSION: '0.5.21'
+    CURRENT_PROJECT_VERSION: '27'
     CODE_SIGNING_ALLOWED: 'NO'
 targets:
   ClearWidget:
@@ -24,6 +24,7 @@ targets:
       - path: Widget/ShortcutReceipt.swift
       - path: Widget/AppearancePreference.swift
       - path: Widget/AppearanceState.swift
+      - path: Widget/AppearanceNotify.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.clearwidget.app
@@ -39,8 +40,8 @@ targets:
         CFBundleDevelopmentRegion: es
         INAlternativeAppNames:
           - INAlternativeAppName: ClearWidget
-        CFBundleShortVersionString: "0.5.20"
-        CFBundleVersion: "26"
+        CFBundleShortVersionString: "0.5.21"
+        CFBundleVersion: "27"
         NSLocationWhenInUseUsageDescription: "ClearWidget usa tu ubicación solo para consultar el clima del lugar donde estés."
         UILaunchScreen: {}
         BGTaskSchedulerPermittedIdentifiers: [com.clearwidget.app.clearsign]
@@ -70,8 +71,8 @@ targets:
       path: Widget/Info.plist
       properties:
         CFBundleDisplayName: "\u2800"
-        CFBundleShortVersionString: "0.5.20"
-        CFBundleVersion: "26"
+        CFBundleShortVersionString: "0.5.21"
+        CFBundleVersion: "27"
         NSWidgetWantsLocation: true
         NSLocationWhenInUseUsageDescription: "Ubicación aproximada para consultar el clima local."
         NSExtension:

@@ -3,8 +3,14 @@ import Foundation
 struct AppearanceRecord: Codable, Equatable {
     let mode: Int
     let changedAt: Date
-    var valid: Bool { (0...3).contains(mode) && changedAt.timeIntervalSinceReferenceDate.isFinite }
-    var revision: UInt64 { changedAt.timeIntervalSinceReferenceDate.bitPattern }
+    var valid: Bool {
+        let value = changedAt.timeIntervalSinceReferenceDate * 1000
+        return (0...3).contains(mode) && value.isFinite && value >= 1 && value < 100_000_000_000_000
+    }
+    var revision: UInt64 { valid ? UInt64((changedAt.timeIntervalSinceReferenceDate * 1000).rounded()) : 0 }
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.mode == rhs.mode && lhs.revision == rhs.revision
+    }
 }
 enum AppearanceDescriptorOutcome: Int, Codable {
     case system = 0, patched = 1, rejected = 2, hookUnavailable = 3

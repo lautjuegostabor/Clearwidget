@@ -216,6 +216,9 @@ static BOOL CWInstall(Class cls,SEL selector,IMP replacement,CWFetchIMP *saved) 
     return YES;
 }
 
+int CWGlassDescriptorHookAvailable(void) {
+    @synchronized(CWGlassArchiveDelegate.class) { return CWOriginalAll != NULL || CWOriginalCurrent != NULL; }
+}
 void CWInstallGlassDescriptorHook(void) {
     if (@available(iOS 27.0,*)) {
         @synchronized(CWGlassArchiveDelegate.class) {

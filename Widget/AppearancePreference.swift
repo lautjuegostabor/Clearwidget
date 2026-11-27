@@ -32,64 +32,65 @@ extension AppearanceRecord {
 
 enum AppearancePreference {
     private static let key = "clearwidget.appearance.v1"
+    private static let lock = NSRecursiveLock()
     static var isExtension: Bool { Bundle.main.bundleURL.pathExtension == "appex" }
     static func local() -> AppearanceRecord? {
-        guard let bytes = UserDefaults.standard.data(forKey: key),
-              let record = try? JSONDecoder().decode(AppearanceRecord.self, from: bytes),
+        guard let bytes = UserDefaults.standard.data(forKey:key),
+              let record = try? JSONDecoder().decode(AppearanceRecord.self,from:bytes),
               record.valid else { return nil }
         return record
     }
-    private static func shared() -> AppearanceRecord? {
-        guard let record = try? ShortcutBridge.readAppearance(), record.valid else { return nil }
-        return record
-    }
     private static func saveLocal(_ record: AppearanceRecord) throws {
-        UserDefaults.standard.set(try JSONEncoder().encode(record), forKey: key)
+        UserDefaults.standard.set(try JSONEncoder().encode(record),forKey:key)
         guard local() == record else { throw AppearanceError.notSaved }
     }
-    static func latest(_ a: AppearanceRecord?, _ b: AppearanceRecord?) -> AppearanceRecord? {
-        [a,b].compactMap { $0 }.filter(\.valid).max { $0.changedAt < $1.changedAt }
-    }
+    private static func bus() throws -> AppearanceNotifyBus { try AppearanceNotifyBus.instance.get() }
     static func currentRecord() -> AppearanceRecord? {
-        let record = latest(local(), shared())
-        if isExtension, let record, record != local() { try? saveLocal(record) }
-        return record
+        lock.lock(); defer { lock.unlock() }
+        let stored = local()
+        guard isExtension else { return stored }
+        // Reject malformed/future requests. A cosmetic preference only, never
+        // trust this channel for anything requiring security or authentication.
+        guard let incoming = try? bus().readRequest(), incoming.changedAt <= Date().addingTimeInterval(60),
+              incoming.revision > (stored?.revision ?? 0) else { return stored }
+        do { try saveLocal(incoming); return incoming } catch { return stored }
     }
     static func current() -> WidgetAppearance { currentRecord()?.selection ?? .system }
-
     static func select(_ mode: WidgetAppearance) throws {
-        let previous = currentRecord()?.changedAt ?? .distantPast
-        let now = Date()
-        let date = now > previous ? now : previous.addingTimeInterval(0.001)
-        let record = AppearanceRecord(mode: mode.rawValue, changedAt: date)
+        lock.lock(); defer { lock.unlock() }
+        let previous = currentRecord()?.revision ?? 0
+        let now = UInt64((Date().timeIntervalSinceReferenceDate * 1000).rounded())
+        let revision = max(now,previous+1)
+        let record = AppearanceRecord(mode:mode.rawValue,changedAt:Date(timeIntervalSinceReferenceDate:Double(revision)/1000))
         try saveLocal(record)
-        if isExtension {
-            try? ShortcutBridge.writeAppearance(record)
-        } else {
-            try ShortcutBridge.writeAppearance(record)
-            guard shared() == record else { throw AppearanceError.notSaved }
+        if !isExtension { try bus().send(record) }
+    }
+    // Resend persisted host state if notifyd has lost its transient registration.
+    // No new revision and no repeated reload when the existing request is intact.
+    @discardableResult static func restoreRequest() throws -> Bool {
+        guard !isExtension, let record = local() else { return false }
+        let transport = try bus()
+        if try transport.readRequest() != record {
+            try transport.send(record); return true
         }
+        return false
     }
     static func delivery() throws -> AppearanceDelivery {
-        guard let request = latest(local(), shared()) else { return .initial }
-        guard try ShortcutBridge.readAppearance() == request else { return .pending }
-        return AppearanceDelivery.resolve(request: request, timeline: try ShortcutBridge.readAppearanceReceipt(),
-            descriptor: try ShortcutBridge.readAppearanceDescriptorReceipt())
+        guard let record = local() else { return .initial }
+        let transport = try bus()
+        guard try transport.readRequest() == record else { return .pending }
+        return AppearanceDelivery.resolve(request:record,timeline:try transport.readTimeline(),descriptor:try transport.readDescriptor())
     }
     static func acknowledgeTimeline() {
+        lock.lock(); defer { lock.unlock() }
         guard isExtension, let record = currentRecord() else { return }
-        if (try? ShortcutBridge.readAppearanceReceipt()) != record {
-            try? ShortcutBridge.writeAppearanceReceipt(record)
-        }
+        try? bus().acknowledge(record)
     }
-    static func report(mode: Int32, revision: UInt64, outcome: Int32) {
-        guard isExtension, let record = currentRecord(),
-              record.mode == Int(mode), record.revision == revision,
-              let result = AppearanceDescriptorOutcome(rawValue: Int(outcome)) else { return }
-        let receipt = AppearanceDescriptorReceipt(record: record, outcome: result)
-        if (try? ShortcutBridge.readAppearanceDescriptorReceipt()) != receipt {
-            try? ShortcutBridge.writeAppearanceDescriptorReceipt(receipt)
-        }
+    static func report(mode:Int32,revision:UInt64,outcome:Int32) {
+        lock.lock(); defer { lock.unlock() }
+        guard isExtension, let record = currentRecord(), record.mode == Int(mode), record.revision == revision,
+              let result = AppearanceDescriptorOutcome(rawValue:Int(outcome)) else { return }
+        try? bus().report(AppearanceDescriptorReceipt(record:record,outcome:result))
     }
 }
 private enum AppearanceError: LocalizedError {

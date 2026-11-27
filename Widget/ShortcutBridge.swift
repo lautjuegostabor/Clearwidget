@@ -73,13 +73,6 @@ enum ShortcutBridge {
             } else if inserted != errSecSuccess { throw ShortcutBridgeError.denied(inserted) }
         } else if status != errSecSuccess { throw ShortcutBridgeError.denied(status) }
     }
-    // Appearance uses separate keys; existing weather/activity/diagnostics untouched.
-    static func readAppearance() throws -> AppearanceRecord? { try get(AppearanceRecord.self, "appearance-v1") }
-    static func writeAppearance(_ record: AppearanceRecord) throws { try put(record, "appearance-v1") }
-    static func readAppearanceReceipt() throws -> AppearanceRecord? { try get(AppearanceRecord.self, "appearance-receipt-v1") }
-    static func writeAppearanceReceipt(_ record: AppearanceRecord) throws { try put(record, "appearance-receipt-v1") }
-    static func readAppearanceDescriptorReceipt() throws -> AppearanceDescriptorReceipt? { try get(AppearanceDescriptorReceipt.self, "appearance-descriptor-v2") }
-    static func writeAppearanceDescriptorReceipt(_ receipt: AppearanceDescriptorReceipt) throws { try put(receipt, "appearance-descriptor-v2") }
     static func beginProbe() throws {
         try put(Probe(id: UUID(), created: Date()), "probe")
     }

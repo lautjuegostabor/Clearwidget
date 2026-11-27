@@ -193,6 +193,9 @@ private struct Provider: AppIntentTimelineProvider {
         let currentEntry = entry(at: date, configuration: configuration, family: context.family, cache: cache, battery: battery)
         if !context.isPreview {
             AppearancePreference.acknowledgeTimeline()
+            if CWGlassDescriptorHookAvailable() == 0, let record = AppearancePreference.currentRecord(), record.mode != 0 {
+                AppearancePreference.report(mode:Int32(record.mode),revision:record.revision,outcome:3)
+            }
             ShortcutReceipt.confirmTimeline(at: date, weatherSource: currentEntry.weatherSource,
                                             weatherFetchedAt: currentEntry.displayedWeatherFetchedAt, activity: currentEntry.activity)
         }

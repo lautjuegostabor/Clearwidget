@@ -30,16 +30,25 @@ struct WidgetAppearancePanel: View {
                 .accessibilityAddTraits(selected == mode ? [.isSelected] : [])
             }
             Text(status).font(.footnote).accessibilityIdentifier("appearance.status")
-            Button("Comprobar estado") { refreshStatus() }
+            Button("Comprobar estado") { restoreAndRefresh() }
             Text("La marca indica tu selección, no el efecto visual aplicado. Liquid Glass sigue siendo experimental y puede coincidir con Blur.")
                 .font(.caption).foregroundStyle(.secondary)
         }
-        .onAppear { selected = AppearancePreference.current(); refreshStatus() }
+        .onAppear { selected = AppearancePreference.current(); restoreAndRefresh() }
         .onChange(of: phase) { _, value in
-            if value == .active { refreshStatus() }
+            if value == .active { restoreAndRefresh() }
             else { observation?.cancel(); observation = nil }
         }
         .onDisappear { observation?.cancel(); observation = nil }
+    }
+    @MainActor private func restoreAndRefresh() {
+        do {
+            if try AppearancePreference.restoreRequest() {
+                WidgetCenter.shared.invalidateConfigurationRecommendations()
+                WidgetCenter.shared.reloadTimelines(ofKind:"ClearWidget")
+            }
+            refreshStatus()
+        } catch { status = "No se pudo enviar la selección: \(error.localizedDescription)" }
     }
     @MainActor private func apply(_ mode: WidgetAppearance) {
         observation?.cancel()
