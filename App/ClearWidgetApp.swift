@@ -6,6 +6,7 @@ import UIKit
 
 @main
 struct ClearWidgetApp: App {
+    @StateObject private var signingPicker = SigningFilePicker.shared
     @State private var installedWidgets = "Sin consultar"
     @State private var shortcutsStatus = "Sin consultar"
     @State private var locationManager = CLLocationManager()
@@ -97,6 +98,9 @@ struct ClearWidgetApp: App {
                         Text("Referencias Clear Medium, Glass Small 7 y Clear Small de Lokki. Uso personal. No distribuir los recursos originales sin autorización.")
                     }
                 }.navigationTitle("ClearWidget")
+                    .sheet(item:$signingPicker.request,onDismiss:{ signingPicker.dismissed() }) { request in
+                        SigningDocumentPicker(types:request.types) { url in signingPicker.finish(url) }
+                    }
                     .onAppear { ClearSign.shared.update(); ClearSign.shared.schedule(); Task { await ClearSign.shared.refreshAlerts() } }
                     .onChange(of: scenePhase) { _, phase in
                         if phase == .active {

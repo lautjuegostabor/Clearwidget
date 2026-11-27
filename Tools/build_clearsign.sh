@@ -11,7 +11,7 @@ mkdir -p "$UP"
 cp -R "$ROOT/Vendor/BariStore/." "$UP/"
 python3 "$ROOT/Signing/patch_renewal_vendor.py" "$UP"
 python3 "$ROOT/Signing/patch_bootstrap_vendor.py" "$UP"
-python3 "$ROOT/Signing/patch_auth_vendor.py" "$UP"
+cmp "$ROOT/Vendor/BariStore/src/apple/gsa.rs" "$UP/src/apple/gsa.rs" # unchanged upstream authentication before appending adapter
 # Build a static library, not the Open Minis executable or UI. Only the listed
 # modules are reachable. Preserve original MIT attribution.
 cp "$ROOT/Signing/lib.rs" "$UP/src/lib.rs"

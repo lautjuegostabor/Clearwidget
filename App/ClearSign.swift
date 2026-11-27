@@ -475,7 +475,7 @@ private struct SignReceipt:Codable {
 
 struct SigningPanel:View {
     @ObservedObject private var signing=ClearSign.shared
-    @State private var importing=false
+    @ObservedObject private var setup=ClearSignSetup.shared
     @State private var confirmErase=false
     @State private var importStatus=""
     var body:some View{
@@ -488,7 +488,14 @@ struct SigningPanel:View {
         if !signing.configured { Text("Primero configurá o importá una sesión de firma.").font(.caption).foregroundStyle(.secondary) }
         else if signing.expiry.map({ $0 <= Date() }) ?? true { Text("No hay una vigencia comprobable. Revisá la instalación en BariStore.").font(.caption).foregroundStyle(.secondary) }
         if signing.running || signing.setupActive { Text("Hay una operación de firma o configuración en curso.").font(.caption).foregroundStyle(.secondary) }
-        Button("Migrar sesión local existente (opcional)"){importStatus="";importing=true}.disabled(!signing.controls.canImport)
+        Button("Migrar sesión local existente (opcional)"){
+            guard setup.pauseForImport() else { importStatus="Finalizá la operación en curso.";return }
+            SigningFilePicker.shared.pick(types:[.folder]) { url in
+                guard let url else {importStatus="Selección cancelada.";return}
+                importStatus=signing.importSession(url) ? "Sesión importada. Probá renovar ahora." : signing.status
+            }
+        }.disabled(!setup.canPauseForImport)
+        if !setup.canPauseForImport { Text("Terminá o cancelá la operación actual para importar.").font(.caption).foregroundStyle(.secondary) }
         if !importStatus.isEmpty { Text(importStatus).font(.footnote) }
         Button("Renovar ahora"){Task{_ = await signing.renew()}}.disabled(!signing.controls.canRenew)
         ClearBootstrapPanel()
@@ -501,17 +508,14 @@ struct SigningPanel:View {
             }message:{Text("Se desactiva la renovación preventiva. No se elimina la app ni se revocan certificados.")}
         Text("Requiere LocalDevVPN y sesión válida. iOS decide cuándo ejecuta tareas en segundo plano. Si vence, recuperá con BariStore. La clave privada de la instalación nueva se conserva exclusivamente en el Keychain de la copia que la preparó; no se exporta. No se guarda la contraseña.")
             .font(.caption).foregroundStyle(.secondary)
-            .fileImporter(isPresented:$importing,allowedContentTypes:[.folder]){result in
-                switch result { case .success(let url): _ = signing.importSession(url); case .failure(let error): importStatus="No se pudo seleccionar la carpeta: "+error.localizedDescription }
-            }
+
     }
 }
 
 struct ClearBootstrapPanel:View {
     @ObservedObject private var signing=ClearSign.shared
     private enum PickKind {case ipa, backup}
-    @State private var picking=false
-    @State private var pickKind:PickKind = .ipa
+    @ObservedObject private var setup=ClearSignSetup.shared
     @State private var ipa:Data?
     @State private var backup:Data?
     @State private var secret=""
@@ -522,7 +526,7 @@ struct ClearBootstrapPanel:View {
         Group {
             Text("Instalación y actualización").font(.headline)
             Text("Guardá primero un respaldo cifrado. Para actualizar, seleccioná un IPA original de build superior; se conservan los identificadores y se reutiliza la sesión. Si falta la clave correspondiente, Apple puede tener que emitir otro certificado. Nunca se revocan certificados. Para instalar con otra cuenta, usá el IPA de la misma versión.").font(.caption)
-            Button("Seleccionar IPA original"){pickKind = .ipa;picking=true}
+            Button("Seleccionar IPA original"){pick(.ipa)}
                 .disabled(!signing.controls.canManageSession)
             if !signing.configured {
                 Text("Para firmar o actualizar un IPA, configurá o importá una sesión primero.").font(.caption).foregroundStyle(.secondary)
@@ -534,8 +538,8 @@ struct ClearBootstrapPanel:View {
                     .disabled(!signing.controls.canManageSession)
                 Button("Descartar IPA"){ipa=nil}
             }
-            Button("Importar respaldo cifrado de sesión"){pickKind = .backup;picking=true}
-                .disabled(!signing.controls.canImport)
+            Button("Importar respaldo cifrado de sesión"){pick(.backup)}
+                .disabled(!setup.canPauseForImport)
             if backup != nil {
                 SecureField("Clave del respaldo",text:$secret).privacySensitive()
                 Button("Importar sesión"){
@@ -546,23 +550,6 @@ struct ClearBootstrapPanel:View {
                 }.disabled(secret.isEmpty||signing.running||signing.setupActive)
             }
             if !message.isEmpty{Text(message).font(.footnote)}
-        }
-        .fileImporter(isPresented:$picking,allowedContentTypes:[.data]){r in
-            do{
-                let url=try r.get()
-                switch pickKind {
-                case .ipa:
-                    guard url.pathExtension.lowercased()=="ipa" else{throw CocoaError(.fileReadCorruptFile)}
-                    ipa=try Self.read(url,limit:16*1024*1024);message="IPA seleccionado."
-                case .backup:
-                    backup=try Self.read(url,limit:4*1024*1024);secret="";message="Respaldo seleccionado."
-                }
-            }catch{
-                switch pickKind {
-                case .ipa:ipa=nil;message="No se pudo leer el IPA original."
-                case .backup:backup=nil;secret="";message="No se pudo leer el respaldo."
-                }
-            }
         }
         .confirmationDialog("¿Instalar ClearWidget con la cuenta de ClearSign?",isPresented:$confirmation,titleVisibility:.visible){
             Button("Autorizar nueva firma"){
@@ -579,6 +566,26 @@ struct ClearBootstrapPanel:View {
             }
             Button("Cancelar",role:.cancel){}
         }message:{Text(updating ? "Confirmá el respaldo cifrado. Se reemplazará esta versión manteniendo los identificadores. iOS puede cerrar la app durante la instalación. Si falta una clave válida, Apple puede consumir un cupo de certificado." : "Confirmá que guardaste el respaldo cifrado. Apple puede consumir cupos de certificado y App IDs. La copia actual no se elimina.")}
+    }
+    private func pick(_ kind:PickKind) {
+        if kind == .backup && !setup.pauseForImport() {message="Finalizá la operación actual.";return}
+        SigningFilePicker.shared.pick(types:[.data]) { url in
+            guard let url else {message="Selección cancelada.";return}
+            do {
+                switch kind {
+                case .ipa:
+                    guard url.pathExtension.lowercased()=="ipa" else{throw CocoaError(.fileReadCorruptFile)}
+                    ipa=try Self.read(url,limit:16*1024*1024);message="IPA seleccionado."
+                case .backup:
+                    backup=try Self.read(url,limit:4*1024*1024);secret="";message="Respaldo seleccionado."
+                }
+            } catch {
+                switch kind {
+                case .ipa: ipa=nil;message="No se pudo leer el IPA original."
+                case .backup: backup=nil;secret="";message="No se pudo leer el respaldo."
+                }
+            }
+        }
     }
     private static func read(_ url:URL,limit:Int)throws->Data {
         let scoped=url.startAccessingSecurityScopedResource()

@@ -77,18 +77,19 @@ async fn run(op:Operation)->Result<&'static str,&'static str>{
             Ok("verified")
         },
         Operation::Auth{email,password,server}=>{
-            if !anisette::SERVERS.contains(&server.as_str()){return Err("server_not_allowed");}
+            if !server.is_empty() && !anisette::SERVERS.contains(&server.as_str()){return Err("server_not_allowed");}
             update(json!({"phase":"authenticating"}));
-            let used=std::sync::atomic::AtomicBool::new(false);
-            let ask=move |kind:gsa::CodeKind,_:Option<String>| -> std::pin::Pin<Box<dyn std::future::Future<Output=Option<String>>+Send>> {
-                if used.swap(true,Ordering::SeqCst){return Box::pin(async{None});}
+            let challenge=std::sync::atomic::AtomicUsize::new(0);
+            let ask=move |kind:gsa::CodeKind,hint:Option<String>| -> std::pin::Pin<Box<dyn std::future::Future<Output=Option<String>>+Send>> {
+                let number=challenge.fetch_add(1,Ordering::SeqCst)+1;
                 Box::pin(async move{
-                    update(json!({"phase":"twoFactor","kind":if kind==gsa::CodeKind::Sms{"sms"}else{"trustedDevice"}}));
+                    // No automatic submission: every upstream challenge requires user input.
+                    update(json!({"phase":"twoFactor","challenge":number,"retry":hint.is_some(),"kind":if kind==gsa::CodeKind::Sms{"sms"}else{"trustedDevice"}}));
                     loop{if cancelled(){return None;}let answer=ANSWER.lock().ok().and_then(|mut x|x.take());if let Some(code)=answer{update(json!({"phase":"authenticating"}));return Some(code);}tokio::time::sleep(Duration::from_millis(150)).await;}
                 })
             };
-            // Only the explicitly selected route; no fallback across servers or claims.
-            gsa::clearsign_login_once(&email,&password,&server,&ask).await?;
+            let status=|_:String|{update(json!({"phase":"authenticating"}));};
+            gsa::clearsign_login_once(&email,&password,&server,&ask,&status).await?;
             Ok("authenticated")
         }
     }
@@ -102,9 +103,11 @@ async fn run(op:Operation)->Result<&'static str,&'static str>{
 }
 #[no_mangle]pub extern "C" fn clearsign_setup_poll()->*mut c_char {response(STATE.lock().ok().and_then(|x|x.clone()).unwrap_or(json!({"phase":"idle"})))}
 #[no_mangle]pub unsafe extern "C" fn clearsign_setup_code(code:*const c_char)->bool {
-    let Some(code)=string(code,6) else{return false;};if code.len()!=6 || !code.bytes().all(|b|b.is_ascii_digit()){return false;}
+    let Some(code)=string(code,6) else{return false;};
+    if code!="sms" && (code.len()!=6 || !code.bytes().all(|b|b.is_ascii_digit())){return false;}
     let Ok(mut state)=STATE.lock() else{return false;};
     if state.as_ref().and_then(|v|v.get("phase")).and_then(Value::as_str)!=Some("twoFactor"){return false;}
+    if code=="sms" && state.as_ref().and_then(|v|v.get("kind")).and_then(Value::as_str)!=Some("trustedDevice"){return false;}
     if let Ok(mut a)=ANSWER.lock(){if a.is_none(){*a=Some(code);*state=Some(json!({"phase":"authenticating"}));return true;}}false
 }
 #[no_mangle]pub extern "C" fn clearsign_setup_cancel(){CANCEL.store(true,Ordering::SeqCst);}
