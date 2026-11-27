@@ -8,7 +8,7 @@ private enum ShortcutTargetError: LocalizedError {
     case wrongTarget, readbackFailed
     var errorDescription: String? {
         switch self {
-        case .wrongTarget: return "iOS no ejecutó la acción en la extensión WidgetKit (build 15). No se guardaron datos."
+        case .wrongTarget: return "iOS no ejecutó la acción en la extensión WidgetKit. No se guardaron datos."
         case .readbackFailed: return "No se pudo verificar la escritura en la extensión."
         }
     }
@@ -16,9 +16,7 @@ private enum ShortcutTargetError: LocalizedError {
 private actor ShortcutWriter {
     static let shared = ShortcutWriter()
     private func checkTarget() throws {
-        guard Bundle.main.bundleURL.pathExtension == "appex",
-              Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "15"
-        else { throw ShortcutTargetError.wrongTarget }
+        guard Bundle.main.bundleURL.pathExtension == "appex" else { throw ShortcutTargetError.wrongTarget }
     }
     func weather(_ json: String) throws {
         try checkTarget()
@@ -46,7 +44,8 @@ private actor ShortcutWriter {
         let receipt = ShortcutReceipt.status()
         if receipt == nil { ShortcutReceipt.start(kind: "diagnóstico", at: Date()) }
         let data = receipt ?? "Prueba local creada; ejecutá el diagnóstico nuevamente después de que iOS actualice el widget."
-        return "Atajos: ejecución directa en WidgetKit · build 15. " + data + " " + WidgetInteraction.diagnostic()
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "desconocido"
+        return "Atajos: ejecución directa en WidgetKit · build \(build). " + data + " " + WidgetInteraction.diagnostic()
     }
 }
 struct AppleWeatherUpdateIntent: AppIntent {
