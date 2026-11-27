@@ -18,17 +18,10 @@ private actor ShortcutWriter {
     private func checkTarget() throws {
         guard Bundle.main.bundleURL.pathExtension == "appex" else { throw ShortcutTargetError.wrongTarget }
     }
-    func weather(_ json: String) throws {
+    func weather(_ json: String) async throws {
         try checkTarget()
-        let now = Date()
-        let cache = try AppleWeatherInput.parse(json, at: now)
-        guard let location = cache.location else { throw AppleWeatherError.invalid }
-        try ForecastDisk.updateLocation(location)
-        try ForecastDisk.save(cache, key: ForecastDisk.appleKey)
-        guard ForecastDisk.apple?.fetchedAt == now,
-              ForecastDisk.cached(at: now)?.source == "apple"
-        else { throw ShortcutTargetError.readbackFailed }
-        ShortcutReceipt.start(kind: "clima", at: now)
+        // Use the same actor as the fallback forecast to serialize cache writes.
+        try await WeatherService.shared.acceptShortcutApple(json)
     }
     func activity(_ source: String, _ steps: Int, _ kcal: Double) throws {
         try checkTarget()
@@ -37,13 +30,12 @@ private actor ShortcutWriter {
         guard let stored = ActivityDisk.read(source: source, at: now),
               stored.steps == steps, stored.activeKcal == kcal, stored.fetchedAt == now
         else { throw ShortcutTargetError.readbackFailed }
-        ShortcutReceipt.start(kind: "actividad", at: now)
+        ShortcutReceipt.startActivity(stored)
     }
     func diagnostic() throws -> String {
         try checkTarget()
-        let receipt = ShortcutReceipt.status()
-        if receipt == nil { ShortcutReceipt.start(kind: "diagnóstico", at: Date()) }
-        let data = receipt ?? "Prueba local creada; ejecutá el diagnóstico nuevamente después de que iOS actualice el widget."
+        ShortcutReceipt.ensureDiagnostic()
+        let data = ShortcutReceipt.status() ?? "No hay comprobante de ejecución guardado."
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "desconocido"
         return "Atajos: ejecución directa en WidgetKit · build \(build). " + data + " " + WidgetInteraction.diagnostic()
     }

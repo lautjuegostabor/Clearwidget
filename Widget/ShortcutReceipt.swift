@@ -1,46 +1,89 @@
 import Foundation
 
-// Widget-local evidence, not a shared container or entitlement.
-// A receipt is distinct from actual rendering on the Home Screen.
+// One latest receipt per kind. Only a timeline containing the exact new
+// payload can acknowledge a data write; a generic refresh cannot.
 enum ShortcutReceipt {
-    private struct Probe: Codable { let id: UUID; let kind: String; let created: Date }
-    private struct Ack: Codable { let id: UUID; let time: Date; let weather: String?; let activity: String? }
-    private static let probeKey = "clearwidget.shortcut.local.probe.v1"
-    private static let ackKey = "clearwidget.shortcut.local.ack.v1"
+    enum Kind: String, CaseIterable, Codable {
+        case diagnostic, weather, activity
+        var label: String {
+            switch self {
+            case .diagnostic: return "diagnóstico"
+            case .weather: return "clima"
+            case .activity: return "actividad"
+            }
+        }
+    }
+    private struct Probe: Codable {
+        let id: UUID
+        let created: Date
+        let source: String?
+        let steps: Int?
+        let kcal: Double?
+    }
+    private struct Ack: Codable { let id: UUID; let time: Date }
+    private struct Record: Codable { let probe: Probe; var ack: Ack? }
     private static let lock = NSLock()
-    private static func read<T: Decodable>(_ type: T.Type, _ key: String, _ defaults: UserDefaults) -> T? {
-        defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(type, from: $0) }
+    private static func key(_ kind: Kind) -> String { "clearwidget.shortcut.local.receipt.v2." + kind.rawValue }
+    private static func read(_ kind: Kind, _ defaults: UserDefaults) -> Record? {
+        defaults.data(forKey: key(kind)).flatMap { try? JSONDecoder().decode(Record.self, from: $0) }
     }
-    private static func write<T: Encodable>(_ value: T, _ key: String, _ defaults: UserDefaults) {
-        if let bytes = try? JSONEncoder().encode(value) { defaults.set(bytes, forKey: key) }
+    private static func write(_ record: Record, _ kind: Kind, _ defaults: UserDefaults) {
+        if let bytes = try? JSONEncoder().encode(record) { defaults.set(bytes, forKey: key(kind)) }
     }
-    static func start(kind: String, at now: Date, defaults: UserDefaults = .standard) {
+    private static func current(_ record: Record, at now: Date) -> Bool {
+        (0...86400).contains(now.timeIntervalSince(record.probe.created))
+    }
+    private static func replace(_ kind: Kind, at now: Date, source: String? = nil,
+                                steps: Int? = nil, kcal: Double? = nil, defaults: UserDefaults) {
+        write(Record(probe: Probe(id: UUID(), created: now, source: source, steps: steps, kcal: kcal), ack: nil), kind, defaults)
+    }
+    static func startWeather(at now: Date, defaults: UserDefaults = .standard) {
         lock.lock(); defer { lock.unlock() }
-        write(Probe(id: UUID(), kind: kind, created: now), probeKey, defaults)
-        defaults.removeObject(forKey: ackKey)
+        replace(.weather, at: now, defaults: defaults)
     }
-    static func confirmTimeline(at now: Date, weather: String?, activity: String?, defaults: UserDefaults = .standard) {
+    static func startActivity(_ activity: ActivityReading, defaults: UserDefaults = .standard) {
         lock.lock(); defer { lock.unlock() }
-        guard let p = read(Probe.self, probeKey, defaults), now >= p.created,
-              now.timeIntervalSince(p.created) <= 86400 else { return }
-        let prior = read(Ack.self, ackKey, defaults)
-        if let prior, prior.id == p.id {
-            // Do not erase prior evidence when a different widget/page refreshes.
-            let w = weather == "apple" ? weather : prior.weather ?? weather
-            let a = activity ?? prior.activity
-            if prior.weather == w && prior.activity == a { return }
-            write(Ack(id: p.id, time: now, weather: w, activity: a), ackKey, defaults)
-        } else {
-            write(Ack(id: p.id, time: now, weather: weather, activity: activity), ackKey, defaults)
+        replace(.activity, at: activity.fetchedAt, source: ActivityDisk.normalize(activity.source),
+                steps: activity.steps, kcal: activity.activeKcal, defaults: defaults)
+    }
+    static func ensureDiagnostic(at now: Date = Date(), defaults: UserDefaults = .standard) {
+        lock.lock(); defer { lock.unlock() }
+        if let record = read(.diagnostic, defaults), current(record, at: now) { return }
+        replace(.diagnostic, at: now, defaults: defaults)
+    }
+    static func confirmTimeline(at now: Date, weatherSource: String?, weatherFetchedAt: Date?,
+                                activity: ActivityReading?, defaults: UserDefaults = .standard) {
+        lock.lock(); defer { lock.unlock() }
+        for kind in Kind.allCases {
+            guard var record = read(kind, defaults), current(record, at: now), record.ack == nil else { continue }
+            let p = record.probe
+            let matches: Bool
+            switch kind {
+            case .diagnostic:
+                matches = true
+            case .weather:
+                matches = weatherSource == "apple" && weatherFetchedAt == p.created
+            case .activity:
+                if let activity {
+                    matches = ActivityDisk.normalize(activity.source) == p.source &&
+                        activity.fetchedAt == p.created && activity.steps == p.steps && activity.activeKcal == p.kcal
+                } else { matches = false }
+            }
+            guard matches else { continue }
+            record.ack = Ack(id: p.id, time: now)
+            write(record, kind, defaults)
         }
     }
     static func status(at now: Date = Date(), defaults: UserDefaults = .standard) -> String? {
         lock.lock(); defer { lock.unlock() }
-        guard let p = read(Probe.self, probeKey, defaults), now >= p.created,
-              now.timeIntervalSince(p.created) <= 86400 else { return nil }
-        guard let a = read(Ack.self, ackKey, defaults), a.id == p.id, a.time >= p.created else {
-            return "Prueba de \(p.kind) guardada; timeline pendiente."
+        let messages = Kind.allCases.compactMap { kind -> String? in
+            guard let r = read(kind, defaults), current(r, at: now) else { return nil }
+            let label = kind.label
+            guard let ack = r.ack, ack.id == r.probe.id, ack.time >= r.probe.created else {
+                return "\(label): guardado, timeline pendiente."
+            }
+            return "\(label): timeline confirmado."
         }
-        return "Timeline confirmado (\(p.kind)). Clima seleccionado: \(a.weather ?? "sin datos"). Actividad en entrada: \(a.activity ?? "sin datos o página no activa")."
+        return messages.isEmpty ? nil : messages.joined(separator: " ")
     }
 }

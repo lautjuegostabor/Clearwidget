@@ -130,6 +130,7 @@ private struct Entry: TimelineEntry {
     var activity: ActivityReading? = nil
     var todayLow: Double? = nil
     var weatherSource: String? = nil
+    var displayedWeatherFetchedAt: Date? = nil
 }
 
 private struct Provider: AppIntentTimelineProvider {
@@ -146,15 +147,19 @@ private struct Provider: AppIntentTimelineProvider {
         } else if needsCurrent {
             glass = GlassForecast(current: cache?.reading(at: now) ?? .empty, hours: [])
         } else { glass = .empty }
+        let mediumWeather = needsMediumWeather ? cache?.reading(at: now) ?? .empty : .empty
+        let displayedWeatherFetchedAt = mediumWeather.current != nil ? mediumWeather.fetchedAt :
+            (glass.current.current != nil || !glass.hours.isEmpty ? cache?.fetchedAt : nil)
         return Entry(date: now, page: page,
-            weather: needsMediumWeather ? cache?.reading(at: now) ?? .empty : .empty,
+            weather: mediumWeather,
             glass: glass,
             configuration: configuration,
             smallPage: smallPage,
             battery: battery,
             activity: animated && smallPage == .activity ? ActivityDisk.read(source: configuration.activityProvider.key(custom: configuration.customActivitySource), at: now) : nil,
             todayLow: animated && smallPage == .weather ? cache?.todayMinimum(at: now) : nil,
-            weatherSource: cache?.source)
+            weatherSource: cache?.source,
+            displayedWeatherFetchedAt: displayedWeatherFetchedAt)
     }
     func placeholder(in context: Context) -> Entry {
         Entry(date: Date(), page: .home, weather: .empty, glass: .empty, configuration: ClearConfiguration())
@@ -170,7 +175,6 @@ private struct Provider: AppIntentTimelineProvider {
         let mark = context.isPreview ? nil : WidgetInteraction.current(at: now)
         let tap = mark != nil
         if !context.isPreview && !tap {
-            ShortcutBridge.consumeInWidget(at: now)
             await WeatherService.shared.refreshIfDue(at: now)
         }
         // Read the latest state after any scheduled network request, never restore an old page.
@@ -188,7 +192,8 @@ private struct Provider: AppIntentTimelineProvider {
         }
         let currentEntry = entry(at: date, configuration: configuration, family: context.family, cache: cache, battery: battery)
         if !context.isPreview {
-            ShortcutReceipt.confirmTimeline(at: date, weather: currentEntry.weatherSource, activity: currentEntry.activity?.source)
+            ShortcutReceipt.confirmTimeline(at: date, weatherSource: currentEntry.weatherSource,
+                                            weatherFetchedAt: currentEntry.displayedWeatherFetchedAt, activity: currentEntry.activity)
         }
         let timeline = Timeline(entries: [currentEntry], policy: .after(next))
         if let mark { WidgetInteraction.finish(mark, started: started, ended: ProcessInfo.processInfo.systemUptime) }

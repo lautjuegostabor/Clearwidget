@@ -245,6 +245,21 @@ actor WeatherService {
             // Retain last good forecast. No immediate retries or fabricated temperatures.
         }
     }
+    // Explicit shortcut input is not rate-limited. Verify its own persisted
+    // cache before reporting success and associate the exact payload timestamp.
+    func acceptShortcutApple(_ json: String, at now: Date = Date()) throws {
+        let cache = try AppleWeatherInput.parse(json, at: now)
+        guard let position = cache.location,
+              ForecastDisk.location.map({ $0.observedAt <= now }) ?? true
+        else { throw AppleWeatherError.invalid }
+        try ForecastDisk.updateLocation(position)
+        try ForecastDisk.save(cache, key: ForecastDisk.appleKey)
+        guard let stored = ForecastDisk.apple, stored.fetchedAt == now,
+              ForecastDisk.cached(at: now)?.source == "apple"
+        else { throw AppleWeatherError.invalid }
+        ShortcutReceipt.startWeather(at: stored.fetchedAt)
+    }
+
     func acceptApple(_ json: String, at now: Date = Date()) throws {
         let cache = try AppleWeatherInput.parse(json, at: now)
         guard let position = cache.location else { throw AppleWeatherError.invalid }
