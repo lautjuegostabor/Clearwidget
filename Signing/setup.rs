@@ -19,9 +19,13 @@ unsafe fn string(p:*const c_char, max:usize)->Option<String>{
     if x.len()>max{return None;}Some(x.to_owned())
 }
 fn start(dir:String,operation:Operation)->bool {
-    if !Path::new(&dir).is_absolute() || BUSY.swap(true,Ordering::SeqCst){return false;}
-    CANCEL.store(false,Ordering::SeqCst);if let Ok(mut a)=ANSWER.lock(){*a=None;}
-    update(json!({"phase":"starting"}));
+    if !Path::new(&dir).is_absolute(){return false;}
+    {
+        let Ok(mut state)=STATE.lock() else{return false;};
+        if BUSY.swap(true,Ordering::SeqCst){return false;}
+        CANCEL.store(false,Ordering::SeqCst);if let Ok(mut a)=ANSWER.lock(){*a=None;}
+        *state=Some(json!({"phase":"starting"}));
+    }
     let launched=std::thread::Builder::new().name("clearsetup".into()).spawn(move ||{
         let _guard=Guard;
         let result=std::panic::catch_unwind(||{
@@ -35,7 +39,12 @@ fn start(dir:String,operation:Operation)->bool {
             }});
             rt.shutdown_timeout(Duration::from_secs(2));r
         }).unwrap_or(Err("engine_unavailable"));
-        match result{Ok(phase)=>update(json!({"phase":phase})),Err(code)=>fail(code)}
+        // A terminal snapshot must mean BUSY is already released. Holding STATE
+        // prevents a new start from overwriting / being overwritten by it.
+        if let Ok(mut state)=STATE.lock(){
+            drop(_guard);
+            *state=Some(match result{Ok(phase)=>json!({"phase":phase}),Err(code)=>json!({"phase":"error","code":code})});
+        }
     });
     if launched.is_err(){BUSY.store(false,Ordering::SeqCst);fail("engine_unavailable");return false;}true
 }
@@ -94,7 +103,8 @@ async fn run(op:Operation)->Result<&'static str,&'static str>{
 #[no_mangle]pub extern "C" fn clearsign_setup_poll()->*mut c_char {response(STATE.lock().ok().and_then(|x|x.clone()).unwrap_or(json!({"phase":"idle"})))}
 #[no_mangle]pub unsafe extern "C" fn clearsign_setup_code(code:*const c_char)->bool {
     let Some(code)=string(code,6) else{return false;};if code.len()!=6 || !code.bytes().all(|b|b.is_ascii_digit()){return false;}
-    if STATE.lock().ok().and_then(|x|x.as_ref().and_then(|v|v.get("phase")).and_then(Value::as_str).map(str::to_owned)).as_deref()!=Some("twoFactor"){return false;}
-    if let Ok(mut a)=ANSWER.lock(){if a.is_none(){*a=Some(code);return true;}}false
+    let Ok(mut state)=STATE.lock() else{return false;};
+    if state.as_ref().and_then(|v|v.get("phase")).and_then(Value::as_str)!=Some("twoFactor"){return false;}
+    if let Ok(mut a)=ANSWER.lock(){if a.is_none(){*a=Some(code);*state=Some(json!({"phase":"authenticating"}));return true;}}false
 }
 #[no_mangle]pub extern "C" fn clearsign_setup_cancel(){CANCEL.store(true,Ordering::SeqCst);}

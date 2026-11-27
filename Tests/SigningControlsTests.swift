@@ -24,6 +24,38 @@
         precondition(!stranded.canRenew)
         precondition(!SigningControls.normalizedAutomatic(true, sessionDefinitelyMissing: true))
         precondition(SigningControls.normalizedAutomatic(true, sessionDefinitelyMissing: false))
-        print("Signing control matrix passed (32 states)")
+        // No clock or prior-attempt timestamp participates in eligibility.
+        let idle = AuthenticationControls(verified: true, running: false, signingRunning: false, setupActive: true, pendingSave: false)
+        var calls = 0
+        func reject() -> Bool { calls += 1; return false }
+        func accept() -> Bool { calls += 1; return true }
+        precondition(!idle.submit(email: "a@example.test", password: "test", consent: false, start: accept))
+        precondition(calls == 0)
+        precondition(!idle.submit(email: "a@example.test", password: "test", consent: true, start: reject))
+        precondition(calls == 1)
+        precondition(idle.submit(email: "a@example.test", password: "test", consent: true, start: accept))
+        precondition(calls == 2) // immediate explicit retry after internal rejection
+        for verified in [false,true] {
+            for running in [false,true] {
+                for signingRunning in [false,true] {
+                    for setupActive in [false,true] {
+                        for pendingSave in [false,true] {
+                            let state = AuthenticationControls(verified: verified, running: running, signingRunning: signingRunning, setupActive: setupActive, pendingSave: pendingSave)
+                            let expected = verified && !running && !signingRunning && setupActive && !pendingSave
+                            let before = calls
+                            precondition(state.submit(email: "a@example.test", password: "test", consent: true, start: accept) == expected)
+                            precondition(calls == before + (expected ? 1 : 0))
+                        }
+                    }
+                }
+            }
+        }
+        precondition(!AuthenticationControls.validCredentials(email: "  ", password: "test"))
+        precondition(!AuthenticationControls.validCredentials(email: "a\u{0000}b", password: "test"))
+        precondition(!AuthenticationControls.validCredentials(email: "a@example.test", password: String(repeating: "x", count: 1025)))
+        precondition(AuthenticationControls.validCode("012345"))
+        precondition(!AuthenticationControls.validCode("12345"))
+        precondition(!AuthenticationControls.validCode("１２３４５６"))
+        print("Signing and authentication control matrices passed (64 states); immediate manual retry and input validation passed")
     }
 }

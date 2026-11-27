@@ -28,6 +28,10 @@ private struct SetupSnapshot: Decodable {
     @Published private(set) var pairCode: String?
     @Published private(set) var needsCode = false
     @Published private(set) var notified = false
+    @Published private(set) var pendingSave = false
+    var authControls: AuthenticationControls {
+        AuthenticationControls(verified: verified, running: running, signingRunning: ClearSign.shared.running, setupActive: ClearSign.shared.setupActive, pendingSave: pendingSave)
+    }
     private var service: NetService?
     private var directory: URL?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
@@ -55,14 +59,14 @@ private struct SetupSnapshot: Decodable {
     }
     private func removeStaging() {
         if let directory { try? FileManager.default.removeItem(at: directory) }
-        directory = nil; paired = false; verified = false
+        directory = nil; paired = false; verified = false; pendingSave = false
     }
     func enablePairNotification() async {
         do { notified = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]); status = notified ? "Aviso del código local autorizado." : "Aviso denegado; podés leer el código en esta pantalla." }
         catch { status = "No se pudo autorizar el aviso: " + error.localizedDescription }
     }
     func beginPair() {
-        guard ClearSign.shared.controls.canStartSetup(setupRunning: running) else { status="Hay una operación en curso."; return }
+        guard !pendingSave, ClearSign.shared.controls.canStartSetup(setupRunning: running) else { status="Hay una operación en curso."; return }
         do {
             removeStaging()
             ClearSign.shared.setSetupActive(true)
@@ -71,7 +75,7 @@ private struct SetupSnapshot: Decodable {
         } catch { removeStaging(); ClearSign.shared.setSetupActive(false); status = "No se pudo preparar el almacenamiento local protegido." }
     }
     func restorePairing() {
-        guard !running,!ClearSign.shared.running,let data=ClearSignVault.storedPairing() else { status="No hay emparejamiento guardado disponible."; return }
+        guard !pendingSave,!running,!ClearSign.shared.running,let data=ClearSignVault.storedPairing() else { status="No hay emparejamiento guardado disponible."; return }
         do {
             removeStaging()
             ClearSign.shared.setSetupActive(true)
@@ -82,23 +86,44 @@ private struct SetupSnapshot: Decodable {
         } catch { removeStaging();ClearSign.shared.setSetupActive(false);status="No se pudo recuperar el emparejamiento local." }
     }
     func verify() {
-        guard paired, !running, !ClearSign.shared.running, ClearSign.shared.setupActive, let directory else { status="Primero creá un emparejamiento o finalizá la operación en curso."; return }
+        guard paired, !pendingSave, !running, !ClearSign.shared.running, ClearSign.shared.setupActive, let directory else { status="Primero creá un emparejamiento o finalizá la operación en curso."; return }
+        verified=false
         launch(directory.path.withCString { setupVerify($0) }, text: "Comprobando con LocalDevVPN…", pairing: false)
     }
-    func authenticate(email: String, password: String, server: String) {
-        guard verified, !running, !ClearSign.shared.running, ClearSign.shared.setupActive, let directory, Self.providers.contains(server), !email.isEmpty, !password.isEmpty else { status="Falta comprobar el emparejamiento o hay una operación en curso."; return }
-        // Credentials only go into the explicitly initiated native operation. Never persist the password.
-        let key = "clearsign.lastExplicitAuth"
-        let last = UserDefaults.standard.double(forKey: key)
-        guard Date().timeIntervalSince1970 - last >= 3600 else { status = "Hay un intento reciente. No se realizará otro de inmediato."; return }
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: key)
-        let ok = directory.path.withCString { d in email.withCString { e in password.withCString { p in server.withCString { s in setupAuth(d,e,p,s) } } } }
+    @discardableResult
+    func authenticate(email: String, password: String, server: String, consent: Bool) -> Bool {
+        guard authControls.canEnterCredentials, let directory else {
+            status="Falta comprobar el emparejamiento o hay una operación en curso."; return false
+        }
+        guard consent, AuthenticationControls.validCredentials(email: email, password: password), Self.providers.contains(server) else {
+            status="Revisá la cuenta, contraseña, servidor y autorización."; return false
+        }
+        // The obsolete build 20/21 timestamp is deliberately not read.
+        // No local cooldown. No automatic login or retry.
+        let ok = authControls.submit(email: email, password: password, consent: consent) {
+            directory.path.withCString { d in email.withCString { e in password.withCString { p in server.withCString { s in setupAuth(d,e,p,s) } } } }
+        }
         launch(ok, text: "Autenticando en una sola ruta…", pairing: false)
+        return ok
     }
-    func submit(_ code: String) {
-        guard needsCode, code.utf8.count == 6, code.utf8.allSatisfy({ (48...57).contains($0) }) else { status="Ingresá seis dígitos."; return }
-        if code.withCString({ setupCode($0) }) { needsCode = false; status = "Verificando el código una sola vez…" }
-        else { status="El motor no aceptó el código. No se realizó un nuevo intento." }
+    @discardableResult
+    func submit(_ code: String) -> Bool {
+        guard running, !stopping, needsCode, AuthenticationControls.validCode(code) else { status="Ingresá seis dígitos cuando Apple solicite el código."; return false }
+        guard code.withCString({ setupCode($0) }) else {
+            status="El motor no aceptó el código. No se realizó un nuevo intento."; return false
+        }
+        needsCode=false; status="Verificando el código una sola vez…"
+        return true
+    }
+    func saveAuthenticatedSession() {
+        guard pendingSave, !running, let directory else { return }
+        if ClearSign.shared.importSession(directory, fromSetup: true) {
+            ClearSign.shared.setSetupActive(false)
+            removeStaging()
+            status="Sesión guardada localmente. Falta comprobar una renovación manual."
+        } else {
+            status="Autenticación completada, pero no se guardó la sesión. "+ClearSign.shared.status+" Podés reintentar guardar sin autenticarte."
+        }
     }
     private func launch(_ ok: Bool, text: String, pairing: Bool) {
         guard ok else { if pairing { removeStaging(); ClearSign.shared.setSetupActive(false) }; status = "El motor está ocupado o no pudo iniciar. No se reintentó."; return }
@@ -130,8 +155,8 @@ private struct SetupSnapshot: Decodable {
         stopNetwork(); running = false; pairCode = nil; needsCode = false; pollTask?.cancel(); pollTask = nil; status = text
     }
     private func poll() {
-        guard let p = setupPoll() else { return }; defer { setupFree(p) }
-        guard let snapshot = try? JSONDecoder().decode(SetupSnapshot.self, from: Data(String(cString: p).utf8)) else { return }
+        guard let p = setupPoll() else { status="El motor no devolvió estado. La operación sigue pendiente; podés cancelarla."; return }; defer { setupFree(p) }
+        guard let snapshot = try? JSONDecoder().decode(SetupSnapshot.self, from: Data(String(cString: p).utf8)) else { status="El estado del motor no se pudo leer. Podés cancelar la operación."; return }
         guard snapshot.phase != lastPhase else { return }; lastPhase = snapshot.phase
         if stopping && snapshot.phase != "error" && snapshot.phase != "paired" && snapshot.phase != "verified" && snapshot.phase != "authenticated" { return }
         if stopping { removeStaging(); ClearSign.shared.setSetupActive(false); finish("Configuración cancelada. No se guardó una nueva sesión."); return }
@@ -157,11 +182,10 @@ private struct SetupSnapshot: Decodable {
         case "twoFactor": needsCode = true; status = snapshot.kind == "sms" ? "Apple solicita el código SMS. Un único intento." : "Apple solicita el código de dispositivo de confianza. Un único intento."
         case "authenticating": needsCode = false; status = "Autenticación en curso. Sin rotación de servidores."
         case "authenticated":
-            guard let directory else { ClearSign.shared.setSetupActive(false); finish("No se encontró la sesión local."); return }
-            // Existing private Keychain path performs validation and saves only allowed files.
-            let saved = ClearSign.shared.importSession(directory, fromSetup: true)
-            ClearSign.shared.setSetupActive(false)
-            removeStaging(); finish(saved ? "Sesión guardada localmente. Falta comprobar una renovación manual." : "No se pudo guardar la sesión. No se reintentó.")
+            guard directory != nil else { ClearSign.shared.setSetupActive(false); finish("No se encontró la sesión local."); return }
+            pendingSave=true
+            finish("Autenticación completada. Guardando sesión…")
+            saveAuthenticatedSession()
         case "error":
             let c = snapshot.code ?? "engine_unavailable"
             if !paired || c == "cancelled" { removeStaging(); ClearSign.shared.setSetupActive(false) }
@@ -183,6 +207,12 @@ private struct SetupSnapshot: Decodable {
         case "auth_service_refused","auth_connection_failed","auth_verification_transport": return "Servicio de autenticación no disponible"
         case "auth_post_verification": return "No se completó la sesión después del código"
         case "auth_storage_failed": return "No se pudo conservar la sesión"
+        case "auth_session_invalid": return "Apple no devolvió los datos necesarios de sesión"
+        case "auth_initial_handshake": return "No se completó el inicio de sesión"
+        case "auth_cancelled","cancelled": return "Operación cancelada"
+        case "engine_busy": return "El motor está ocupado"
+        case "vpn_or_pairing_unavailable": return "No se pudo comprobar el emparejamiento; revisá LocalDevVPN"
+        case "device_mismatch": return "El emparejamiento no corresponde a este iPhone"
         case "timeout": return "La operación agotó el tiempo disponible"
         default: return "Operación detenida"
         }
@@ -203,28 +233,38 @@ struct ClearSignSetupPanel: View {
         Text("Configurar ClearSign sin BariStore").font(.headline)
         Text(setup.status).font(.footnote)
         Button("Permitir aviso del código local") { Task { await setup.enablePairNotification() } }.disabled(setup.running)
-        Button("Crear emparejamiento propio") { setup.beginPair() }.disabled(!signing.controls.canStartSetup(setupRunning: setup.running))
+        Button("Crear emparejamiento propio") { setup.beginPair() }.disabled(setup.pendingSave || !signing.controls.canStartSetup(setupRunning: setup.running))
         if signing.automatic { Text("La renovación se pausa mientras configurás el emparejamiento.").font(.caption).foregroundStyle(.secondary) }
         if let c = setup.pairCode { Text(c).font(.title.monospacedDigit()).privacySensitive() }
-        Button("Comprobar emparejamiento") { setup.verify() }.disabled(!setup.paired || setup.running || signing.running)
+        Button("Comprobar emparejamiento") { setup.verify() }.disabled(!setup.paired || setup.pendingSave || setup.running || signing.running || !signing.setupActive)
         if !setup.paired {
             if setup.hasSavedPairing { Button("Recuperar emparejamiento guardado") { setup.restorePairing() }.disabled(setup.running || signing.running) }
             else { Text("Creá primero un emparejamiento propio.").font(.caption).foregroundStyle(.secondary) }
         }
-        if setup.verified && !setup.running {
+        if setup.verified && !setup.pendingSave {
             Text("No inicies sesión si Apple limitó tu cuenta. El método no es una API pública de autenticación de Apple. No guardamos la contraseña ni cambiamos certificados.").font(.caption)
-            Picker("Servidor Anisette", selection: $server) { ForEach(ClearSignSetup.providers, id: \.self) { Text($0).tag($0) } }
-            TextField("Cuenta Apple", text: $email).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.emailAddress)
-            SecureField("Contraseña (solo en este iPhone)", text: $password)
-            Toggle("Autorizo un intento en esta ruta", isOn: $consent)
+            Picker("Servidor Anisette", selection: $server) { ForEach(ClearSignSetup.providers, id: \.self) { Text($0).tag($0) } }.disabled(setup.running)
+            TextField("Cuenta Apple", text: $email).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.emailAddress).disabled(setup.running)
+            SecureField("Contraseña (solo en este iPhone)", text: $password).disabled(setup.running)
+            Toggle("Autorizo un intento en esta ruta", isOn: $consent).disabled(setup.running)
             Button("Autenticar una vez") {
-                setup.authenticate(email: email, password: password, server: server); password = ""; email = ""; consent = false
-            }.disabled(!consent || email.isEmpty || password.isEmpty || signing.running || !signing.setupActive)
+                if setup.authenticate(email: email, password: password, server: server, consent: consent) {
+                    // The engine has copied the input; clear the secret only after acceptance.
+                    password = ""; consent = false
+                }
+            }.disabled(!consent || !AuthenticationControls.validCredentials(email: email, password: password) || !setup.authControls.canEnterCredentials)
+            if setup.running {
+                ProgressView(setup.status).font(.footnote)
+            } else {
+                Text(setup.status).font(.footnote)
+            }
         }
+        if setup.running && !setup.verified { ProgressView(setup.status).font(.footnote) }
         if setup.needsCode {
             SecureField("Código de seis dígitos", text: $code).keyboardType(.numberPad).textContentType(.oneTimeCode)
-            Button("Validar una vez") { setup.submit(code); code = "" }.disabled(code.utf8.count != 6 || !code.utf8.allSatisfy { (48...57).contains($0) })
+            Button("Validar una vez") { if setup.submit(code) { code = "" } }.disabled(!AuthenticationControls.validCode(code))
         }
+        if setup.pendingSave { Button("Guardar sesión nuevamente") { setup.saveAuthenticatedSession() }.disabled(setup.running || signing.running) }
         Button("Cancelar configuración") { setup.cancel(); email = ""; password = ""; code = ""; consent = false }.disabled(!setup.running && !setup.paired && !signing.setupActive)
     }
 }
