@@ -6,9 +6,19 @@ import Foundation
         let raw = try PropertyListSerialization.data(fromPropertyList: ["TeamIdentifier":[team]], format: .xml, options: 0)
         precondition(WeatherShortcutRecipe.teamIdentifier(profile: Data([1,2,3]) + raw + Data([4,5])) == team)
         precondition(WeatherShortcutRecipe.teamIdentifier(profile: Data()) == nil)
-        let data = try WeatherShortcutRecipe.encoded(bundleID: bundle, teamID: team)
-        let dict = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as! [String: Any]
-        let actions = dict["actions"] as! [[String: Any]]
+        let data = try WeatherShortcutRecipe.encodedItems(bundleID: bundle, teamID: team)
+        let actions = try data.map { item -> [String: Any] in
+            precondition(item.starts(with: Data("bplist00".utf8)))
+            var format = PropertyListSerialization.PropertyListFormat.xml
+            let action = try PropertyListSerialization.propertyList(from: item, options: [], format: &format) as! [String: Any]
+            precondition(format == .binary && action["actions"] == nil)
+            return action
+        }
+        precondition(WeatherShortcutRecipe.inspect(data).hasPrefix("14 elementos"))
+        precondition(WeatherShortcutRecipe.inspect([]).contains("No hay"))
+        let envelope = try PropertyListSerialization.data(fromPropertyList: ["actions":actions], format: .xml, options: 0)
+        precondition(WeatherShortcutRecipe.inspect([envelope]).contains("conjunto de 14 acciones"))
+        precondition(WeatherShortcutRecipe.inspect([Data([1,2,3])]).contains("no reconocidos"))
         precondition(actions.count == 14)
         var seen = Set<String>()
         func validate(_ value: Any) {

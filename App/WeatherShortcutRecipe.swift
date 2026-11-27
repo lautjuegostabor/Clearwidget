@@ -58,11 +58,36 @@ enum WeatherShortcutRecipe {
         return actions
     }
 
-    static func encoded(bundleID: String, teamID: String?) throws -> Data {
-        // Multi-action clipboard envelope as used by Shortcut Source Tool.
-        // It is an editor clipboard payload, not an unsigned .shortcut file.
-        let a = actions(bundleID: bundleID, teamID: teamID)
-        return try PropertyListSerialization.data(fromPropertyList: ["actions": a], format: .xml, options: 0)
+    // Native per-action clipboard layout documented by the working macOS
+    // implementation in Samin100/codex-ios-assistant/scripts/copy-shortcut-actions.swift.
+    // iOS editor acceptance still needs device verification.
+    static func encodedItems(bundleID: String, teamID: String?) throws -> [Data] {
+        try actions(bundleID: bundleID, teamID: teamID).map {
+            try PropertyListSerialization.data(fromPropertyList: $0, format: .binary, options: 0)
+        }
+    }
+
+    // Decode only the clipboard representation of Shortcuts actions, not
+    // arbitrary text or other pasteboard data. No data leaves this device.
+    static func inspect(_ values: [Data]) -> String {
+        guard !values.isEmpty else { return "No hay acciones de Atajos en el portapapeles." }
+        var result: [String] = []
+        for data in values {
+            var format = PropertyListSerialization.PropertyListFormat.xml
+            guard let obj = try? PropertyListSerialization.propertyList(from: data, options: [], format: &format) else {
+                result.append("Datos no reconocidos: \(data.count) bytes")
+                continue
+            }
+            let label = format == .binary ? "binario" : "XML"
+            if let dict = obj as? [String: Any], let id = dict["WFWorkflowActionIdentifier"] as? String {
+                result.append("\(label) · \(id)")
+            } else if let dict = obj as? [String: Any], let a = dict["actions"] as? [[String: Any]] {
+                result.append("\(label) · conjunto de \(a.count) acciones")
+            } else {
+                result.append("\(label) · estructura no reconocida")
+            }
+        }
+        return "\(values.count) elementos · " + result.joined(separator: "\n")
     }
 }
 
