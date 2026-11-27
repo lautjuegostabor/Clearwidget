@@ -38,6 +38,9 @@ struct AppleWeatherInput: Decodable {
     }
     static func parse(_ json: String, at now: Date) throws -> ForecastCache {
         guard let data = json.data(using: .utf8), data.count <= 64_000 else { throw AppleWeatherError.invalid }
+        if json.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("CWAPPLE1") {
+            return try AppleWeatherTextInput.parse(json, at: now)
+        }
         let x = try JSONDecoder().decode(Self.self, from: data)
         return try x.cache(at: now)
     }
@@ -137,5 +140,109 @@ enum NativeAppleWeatherInput {
             current: try row(now, currentTemperature, currentCondition), hourly: hours,
             tomorrowHigh: try celsius(tomorrowHigh), todayLow: try celsius(todayLow), timezone: timezone.identifier)
         return try input.cache(at: now)
+    }
+}
+
+
+// CWAPPLE1: plain-text transport from native Apple Weather Shortcuts.
+// No JSON numbers, boolean coercions, parallel lists or localized date parsing
+// in Shortcuts. Explicit Celsius conversion happens in the native action;
+// the receiver still recognizes Fahrenheit if a unit is supplied.
+enum AppleWeatherTextInput {
+    struct Failure: LocalizedError {
+        let detail: String
+        var errorDescription: String? { "Clima Apple: " + detail }
+    }
+    static func parse(_ text: String, at now: Date,
+                      zone: TimeZone = .autoupdatingCurrent) throws -> ForecastCache {
+        func clean(_ s: String) -> String {
+            s.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        func number(_ value: String, field: String) throws -> Double {
+            let s = clean(value).replacingOccurrences(of: "−", with: "-")
+                .replacingOccurrences(of: ",", with: ".")
+            guard let v = Double(s), v.isFinite else { throw Failure(detail: "\(field): número ausente o inválido.") }
+            return v
+        }
+        func temperature(_ value: String, field: String) throws -> Measurement<UnitTemperature> {
+            let s = clean(value).uppercased().replacingOccurrences(of: "−", with: "-")
+                .replacingOccurrences(of: ",", with: ".")
+                .replacingOccurrences(of: "℃", with: "°C").replacingOccurrences(of: "℉", with: "°F")
+            let compact = s.filter { !$0.isWhitespace }
+            var magnitude = compact
+            var unit = UnitTemperature.celsius
+            if magnitude.hasSuffix("F") { unit = .fahrenheit; magnitude.removeLast() }
+            else if magnitude.hasSuffix("C") { magnitude.removeLast() }
+            if magnitude.hasSuffix("°") { magnitude.removeLast() }
+            let result = Measurement(value: try number(magnitude, field: field), unit: unit)
+            guard (-100...70).contains(result.converted(to: .celsius).value) else {
+                throw Failure(detail: "\(field): temperatura fuera de rango.")
+            }
+            return result
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        func date(_ value: String, field: String) throws -> Date {
+            let s = clean(value)
+            guard let d = formatter.date(from: s) ?? fractional.date(from: s) else {
+                throw Failure(detail: "\(field): falta una fecha ISO 8601 válida.")
+            }
+            return d
+        }
+        let lines = text.components(separatedBy: .newlines).map(clean).filter { !$0.isEmpty }
+        guard lines.first == "CWAPPLE1" else { throw Failure(detail: "cabecera incorrecta.") }
+        var location: (Double, Double)?
+        var current: (Date, Measurement<UnitTemperature>, String)?
+        var hours: [(Date, Measurement<UnitTemperature>, String)] = []
+        var days: [(Date, Measurement<UnitTemperature>, Measurement<UnitTemperature>)] = []
+        for (i, line) in lines.dropFirst().enumerated() {
+            let p = line.components(separatedBy: "|").map(clean)
+            let label = "registro \(i + 1)"
+            switch p.first {
+            case "L":
+                guard p.count == 3, location == nil else { throw Failure(detail: "ubicación: estructura inválida.") }
+                location = (try number(p[1], field: "latitud"), try number(p[2], field: "longitud"))
+            case "C", "H":
+                guard p.count == 4, !p[3].isEmpty else { throw Failure(detail: "\(label): faltan fecha, temperatura o condición.") }
+                let row = (try date(p[1], field: label), try temperature(p[2], field: label), p[3])
+                if p[0] == "C" {
+                    guard current == nil else { throw Failure(detail: "clima actual duplicado.") }
+                    current = row
+                } else { hours.append(row) }
+            case "D":
+                guard p.count == 4 else { throw Failure(detail: "\(label): pronóstico diario incompleto.") }
+                days.append((try date(p[1], field: label), try temperature(p[2], field: label + " mínima"),
+                             try temperature(p[3], field: label + " máxima")))
+            default: throw Failure(detail: "\(label): formato de línea incorrecto.")
+            }
+        }
+        guard let loc = location,
+              WeatherLocation(latitude: loc.0, longitude: loc.1, observedAt: now).valid
+        else { throw Failure(detail: "ubicación ausente o fuera de rango.") }
+        guard let c = current else { throw Failure(detail: "faltan condiciones actuales.") }
+        guard abs(now.timeIntervalSince(c.0)) <= 600 else { throw Failure(detail: "fecha de consulta fuera de los últimos 10 minutos.") }
+        guard (5...168).contains(hours.count) else { throw Failure(detail: "se recibieron \(hours.count) registros horarios; se necesitan al menos cinco.") }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        guard let nextDay = calendar.date(byAdding: .day, value: 1, to: now),
+              let today = days.first(where: { calendar.isDate($0.0, inSameDayAs: now) }),
+              let tomorrow = days.first(where: { calendar.isDate($0.0, inSameDayAs: nextDay) })
+        else { throw Failure(detail: "faltan los pronósticos diarios de hoy o mañana.") }
+        let future = hours.filter { $0.0 > now && $0.0.timeIntervalSince(now) <= 72*3600 }.sorted { $0.0 < $1.0 }
+        guard future.count >= 5 else { throw Failure(detail: "solo \(future.count) horas futuras válidas.") }
+        guard future[0].0.timeIntervalSince(now) <= 3600 else { throw Failure(detail: "la primera hora futura está a más de 60 minutos.") }
+        // Keep only the consecutive prefix, never manufacture missing forecast rows.
+        var consecutive = [future[0]]
+        for row in future.dropFirst() {
+            guard row.0.timeIntervalSince(consecutive.last!.0) == 3600 else { break }
+            consecutive.append(row)
+        }
+        guard consecutive.count >= 5 else { throw Failure(detail: "solo \(consecutive.count) horas consecutivas; faltan registros de Apple.") }
+        return try NativeAppleWeatherInput.makeCache(latitude: loc.0, longitude: loc.1, timezone: zone,
+            currentTemperature: c.1, currentCondition: c.2, hourlyDates: consecutive.map { $0.0 },
+            hourlyTemperatures: consecutive.map { $0.1 }, hourlyConditions: consecutive.map { $0.2 },
+            todayLow: today.1, tomorrowHigh: tomorrow.2, at: now)
     }
 }

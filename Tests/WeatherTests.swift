@@ -98,6 +98,33 @@ struct WeatherTests {
         precondition(invalidNative([d[0],d[0],d[2],d[3],d[4]], v, c))
         precondition(invalidNative([d[0],d[1],d[2],d[3],d[4].addingTimeInterval(3600)], v, c))
         precondition(invalidNative(d, v, ["","Despejado","Despejado","Despejado","Despejado"]))
+        let iso = ISO8601DateFormatter()
+        var packet = ["CWAPPLE1", "L|-31,4|-64,2", "C|\(iso.string(from: now))|25,5 °C|Despejado"]
+        for i in 10...16 {
+            packet.append("H|\(iso.string(from: Date(timeIntervalSince1970: Double(times[i]))))|23 °C|Parcialmente nublado")
+        }
+        packet.append("D|\(iso.string(from: start))|15 °C|29 °C")
+        packet.append("D|\(iso.string(from: start.addingTimeInterval(86400)))|17 °C|86 °F")
+        let rawText = packet.joined(separator: "\n")
+        let received = try AppleWeatherTextInput.parse(rawText, at: now, zone: cal.timeZone)
+        precondition(received.source == "apple")
+        precondition(received.reading(at: now).current == 25.5)
+        precondition(abs((received.reading(at: now).tomorrowHigh ?? 0) - 30) < 0.001)
+        precondition(received.todayMinimum(at: now) == 15)
+        precondition(received.payload.hourly.time.count == 7)
+        let invalidPackets = [
+            rawText.replacingOccurrences(of: "25,5 °C", with: ""),
+            rawText.replacingOccurrences(of: "L|-31,4|-64,2", with: "L||-64,2"),
+            rawText.replacingOccurrences(of: "CWAPPLE1", with: "CWAPPLE2"),
+            packet.filter { !$0.hasPrefix("H|") }.joined(separator: "\n"),
+            packet.filter { !$0.hasPrefix("D|") }.joined(separator: "\n")
+        ]
+        for bad in invalidPackets {
+            do {
+                _ = try AppleWeatherTextInput.parse(bad, at: now, zone: cal.timeZone)
+                preconditionFailure("Invalid Apple Weather text accepted")
+            } catch { precondition(error.localizedDescription.hasPrefix("Clima Apple:")) }
+        }
         let location = apple.location!
         let fallback = ForecastCache(fetchedAt: now, payload: payload, source: "openmeteo", location: location)
         precondition(ForecastDisk.select(apple: apple, fallback: fallback, location: location, at: now)?.source == "apple")

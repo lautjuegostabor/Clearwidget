@@ -256,12 +256,12 @@ actor WeatherService {
         guard cache.source == "apple", cache.fetchedAt == now,
               let position = cache.location,
               ForecastDisk.location.map({ $0.observedAt <= now }) ?? true
-        else { throw AppleWeatherError.invalid }
+        else { throw AppleWeatherTextInput.Failure(detail: "el registro de ubicación es más reciente que el pronóstico o el origen no es válido.") }
         try ForecastDisk.updateLocation(position)
         try ForecastDisk.save(cache, key: ForecastDisk.appleKey)
         guard let stored = ForecastDisk.apple, stored.fetchedAt == now,
               ForecastDisk.cached(at: now)?.source == "apple"
-        else { throw AppleWeatherError.invalid }
+        else { throw AppleWeatherTextInput.Failure(detail: "no se pudo verificar el pronóstico guardado en WidgetKit.") }
         ShortcutReceipt.startWeather(at: stored.fetchedAt)
     }
 
