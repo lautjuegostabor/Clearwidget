@@ -69,7 +69,17 @@ private enum ClearSignVault {
         var q=query;q[kSecReturnData as String]=true;q[kSecMatchLimit as String]=kSecMatchLimitOne
         var out:CFTypeRef?
         guard SecItemCopyMatching(q as CFDictionary,&out)==errSecSuccess,let d=out as? Data else{return nil}
-        return try? JSONDecoder().decode([String:Data].self,from:d)
+        guard let files = try? JSONDecoder().decode([String:Data].self,from:d) else { return nil }
+        return try? validateSession(files)
+    }
+    static func sessionDefinitelyMissing() -> Bool {
+        var q=query; q[kSecReturnData as String]=true; q[kSecMatchLimit as String]=kSecMatchLimitOne
+        var out:CFTypeRef?
+        let result = SecItemCopyMatching(q as CFDictionary, &out)
+        if result == errSecItemNotFound { return true }
+        guard result == errSecSuccess else { return false } // locked/inaccessible is not absence
+        guard let d=out as? Data, let files=try? JSONDecoder().decode([String:Data].self,from:d) else { return true }
+        return (try? validateSession(files)) == nil
     }
     static func save(_ entries:[String:Data]) throws {
         let d=try JSONEncoder().encode(entries)
@@ -158,6 +168,8 @@ private struct SignReceipt:Codable {
     @Published private(set) var running=false
     @Published private(set) var setupActive=false
     @Published private(set) var expiry:Date?
+    @Published private(set) var alertStatus="Sin consultar permisos de avisos."
+    var controls: SigningControls { SigningControls(configured: configured, automatic: automatic, running: running, setupActive: setupActive, validExpiry: expiry.map { $0 > Date() } ?? false) }
     @Published var automatic:Bool {
         didSet {UserDefaults.standard.set(automatic,forKey:"clearsign.auto");schedule();Task{await notifications()}}
     }
@@ -179,9 +191,12 @@ private struct SignReceipt:Codable {
     func update(){
         configured=ClearSignVault.load() != nil
         expiry=currentExpiry(EmbeddedProfile.installed())
-        if !configured{status="Configurá el emparejamiento y la cuenta de firma, o migrá una sesión existente."}
+        if !configured {
+            if automatic && !SigningControls.normalizedAutomatic(automatic, sessionDefinitelyMissing: ClearSignVault.sessionDefinitelyMissing()) { automatic=false }
+            status="No hay sesión de firma disponible. Importá un respaldo o creá un emparejamiento propio. La renovación no puede ejecutarse sin sesión."
+        }
         else if expiry==nil{status="No se pudieron leer los dos perfiles incluidos."}
-        else if status=="Sin configurar" || status.hasPrefix("Configurá"){status="Sesión importada. Pendiente de renovación comprobada."}
+        else if status=="Sin configurar" || status.hasPrefix("Configurá") || status.hasPrefix("No hay sesión"){status="Sesión importada. Pendiente de renovación comprobada."}
     }
     func register(){
         guard !registered else{return}
@@ -276,13 +291,27 @@ private struct SignReceipt:Codable {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers:alertIDs)
     }
     func enableAlerts() async {
-        do{_ = try await UNUserNotificationCenter.current().requestAuthorization(options:[.alert,.sound,.badge]);await notifications()}
-        catch{status="No se pudo habilitar avisos."}
+        do {
+            let granted = try await UNUserNotificationCenter.current().requestAuthorization(options:[.alert,.sound,.badge])
+            alertStatus = granted ? "Avisos autorizados. Se programarán antes del vencimiento." : "Avisos denegados. Habilitalos en Ajustes > Notificaciones."
+            await notifications()
+        } catch { alertStatus="No se pudo habilitar avisos: "+error.localizedDescription }
+    }
+    func refreshAlerts() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        switch settings.authorizationStatus {
+        case .authorized, .provisional, .ephemeral: alertStatus="Avisos autorizados."
+        case .denied: alertStatus="Avisos denegados. Revisá Ajustes > Notificaciones."
+        case .notDetermined: alertStatus="Avisos aún sin autorización."
+        @unknown default: alertStatus="Estado de avisos desconocido."
+        }
+        await notifications()
     }
     private func notifications() async {
         let center=UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers:alertIDs)
-        guard automatic,let expiry else{return}
+        let settings=await center.notificationSettings()
+        guard [.authorized,.provisional,.ephemeral].contains(settings.authorizationStatus),let expiry,expiry>Date() else{return}
         for (id,days) in zip(alertIDs,[2.0,1.0]){
             let remaining=expiry.addingTimeInterval(-days*86400).timeIntervalSinceNow
             let c=UNMutableNotificationContent()
@@ -291,7 +320,8 @@ private struct SignReceipt:Codable {
             c.sound = .default
             if remaining>0 {
                 let trigger=UNTimeIntervalNotificationTrigger(timeInterval:max(1,remaining),repeats:false)
-                try? await center.add(UNNotificationRequest(identifier:id,content:c,trigger:trigger))
+                do { try await center.add(UNNotificationRequest(identifier:id,content:c,trigger:trigger)) }
+                catch { alertStatus="No se pudo programar un aviso: "+error.localizedDescription }
             }
         }
     }
@@ -366,7 +396,8 @@ private struct SignReceipt:Codable {
         let pointer:UnsafeMutablePointer<CChar>?=dir.path.withCString{path in
             request.withUnsafeBytes{raw in
                 guard let p=raw.bindMemory(to:UInt8.self).baseAddress else{return nil}
-                if ipa != nil {return nativeBootstrap(path,p,request.count)}
+                if !signing.configured { Text("Para firmar o actualizar un IPA, configurá o importá una sesión primero.").font(.caption).foregroundStyle(.secondary) }
+            if ipa != nil {return nativeBootstrap(path,p,request.count)}
                 return nativeRefresh(path,p,request.count)
             }
         }
@@ -406,22 +437,33 @@ private struct SignReceipt:Codable {
 struct SigningPanel:View {
     @ObservedObject private var signing=ClearSign.shared
     @State private var importing=false
+    @State private var confirmErase=false
+    @State private var importStatus=""
     var body:some View{
         Text("ClearSign · experimental").font(.headline)
         if let expiry=signing.expiry {
             LabeledContent("Vencimiento de perfiles",value:expiry.formatted(date:.abbreviated,time:.shortened))
         }else{Text("Vencimiento no disponible.")}
         Text(signing.status).font(.footnote)
-        Toggle("Renovación preventiva",isOn:$signing.automatic).disabled(!signing.configured || signing.running || signing.setupActive)
-        Button("Migrar sesión local existente (opcional)"){importing=true}.disabled(signing.running || signing.setupActive)
-        Button("Renovar ahora"){Task{_ = await signing.renew()}}.disabled(!signing.configured || signing.running || signing.setupActive)
+        Toggle("Renovación preventiva",isOn:$signing.automatic).disabled(!signing.controls.canToggleAutomatic)
+        if !signing.configured { Text("Primero configurá o importá una sesión de firma.").font(.caption).foregroundStyle(.secondary) }
+        else if signing.expiry.map({ $0 <= Date() }) ?? true { Text("No hay una vigencia comprobable. Revisá la instalación en BariStore.").font(.caption).foregroundStyle(.secondary) }
+        if signing.running || signing.setupActive { Text("Hay una operación de firma o configuración en curso.").font(.caption).foregroundStyle(.secondary) }
+        Button("Migrar sesión local existente (opcional)"){importStatus="";importing=true}.disabled(!signing.controls.canImport)
+        if !importStatus.isEmpty { Text(importStatus).font(.footnote) }
+        Button("Renovar ahora"){Task{_ = await signing.renew()}}.disabled(!signing.controls.canRenew)
         ClearBootstrapPanel()
         Button("Habilitar avisos de vencimiento"){Task{await signing.enableAlerts()}}
-        Button("Eliminar sesión de firma",role:.destructive){signing.forget()}.disabled(!signing.configured || signing.running || signing.setupActive)
+        Text(signing.alertStatus).font(.caption).foregroundStyle(.secondary)
+        Button("Eliminar sesión de firma",role:.destructive){confirmErase=true}.disabled(!signing.controls.canManageSession)
+            .confirmationDialog("¿Eliminar la sesión local de firma?",isPresented:$confirmErase,titleVisibility:.visible){
+                Button("Eliminar sesión",role:.destructive){signing.forget()}
+                Button("Cancelar",role:.cancel){}
+            }message:{Text("Se desactiva la renovación preventiva. No se elimina la app ni se revocan certificados.")}
         Text("Requiere LocalDevVPN y sesión válida. iOS decide cuándo ejecuta tareas en segundo plano. Si vence, recuperá con BariStore. La clave privada de la instalación nueva se conserva exclusivamente en el Keychain de la copia que la preparó; no se exporta. No se guarda la contraseña.")
             .font(.caption).foregroundStyle(.secondary)
             .fileImporter(isPresented:$importing,allowedContentTypes:[.folder]){result in
-                switch result{case .success(let url):signing.importSession(url);case .failure:break}
+                switch result { case .success(let url): _ = signing.importSession(url); case .failure(let error): importStatus="No se pudo seleccionar la carpeta: "+error.localizedDescription }
             }
     }
 }
@@ -442,23 +484,23 @@ struct ClearBootstrapPanel:View {
             Text("Instalación y actualización").font(.headline)
             Text("Guardá primero un respaldo cifrado. Para actualizar, seleccioná un IPA original de build superior; se conservan los identificadores y se reutiliza la sesión. Si falta la clave correspondiente, Apple puede tener que emitir otro certificado. Nunca se revocan certificados. Para instalar con otra cuenta, usá el IPA de la misma versión.").font(.caption)
             Button("Seleccionar IPA original"){pickKind = .ipa;picking=true}
-                .disabled(!signing.configured||signing.running||signing.setupActive)
+                .disabled(!signing.controls.canManageSession)
             if ipa != nil {
                 Button("Actualizar esta instalación"){updating=true;confirmation=true}
-                    .disabled(signing.running||signing.setupActive)
+                    .disabled(!signing.controls.canImport)
                 Button("Firmar e instalar copia nueva"){updating=false;confirmation=true}
-                    .disabled(signing.running||signing.setupActive)
+                    .disabled(!signing.controls.canImport)
                 Button("Descartar IPA"){ipa=nil}
             }
             Button("Importar respaldo cifrado de sesión"){pickKind = .backup;picking=true}
-                .disabled(signing.running||signing.setupActive)
+                .disabled(!signing.controls.canImport)
             if backup != nil {
                 SecureField("Clave del respaldo",text:$secret).privacySensitive()
                 Button("Importar sesión"){
                     guard let bytes=backup else{return}
                     defer{secret="";backup=nil}
                     do{try signing.importEncryptedSession(bytes,secret:secret.trimmingCharacters(in:.whitespacesAndNewlines));message="Sesión importada."}
-                    catch{message="No se pudo importar el respaldo; no se reemplazó la sesión."}
+                    catch{message="No se pudo importar el respaldo; no se reemplazó la sesión. Revisá el archivo y la clave."}
                 }.disabled(secret.isEmpty||signing.running||signing.setupActive)
             }
             if !message.isEmpty{Text(message).font(.footnote)}

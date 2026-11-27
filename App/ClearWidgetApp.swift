@@ -2,12 +2,17 @@ import SwiftUI
 import WidgetKit
 import CoreLocation
 import AppIntents
+import UIKit
 
 @main
 struct ClearWidgetApp: App {
     @State private var installedWidgets = "Sin consultar"
     @State private var shortcutsStatus = "Sin consultar"
     @State private var locationManager = CLLocationManager()
+    @State private var widgetRefreshStatus = ""
+    @State private var locationStatus = ""
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     init() {
         ClearWidgetShortcuts.updateAppShortcutParameters()
         ClearSignSetup.purgeAbandonedSetup()
@@ -46,11 +51,28 @@ struct ClearWidgetApp: App {
                                 DispatchQueue.main.async { installedWidgets = message }
                             }
                         }
-                        Button("Actualizar widgets") { WidgetCenter.shared.reloadAllTimelines() }
+                        Button("Actualizar widgets") {
+                            WidgetCenter.shared.reloadAllTimelines()
+                            widgetRefreshStatus = "Recarga solicitada a iOS. La actualización visual puede demorarse."
+                        }
+                        if !widgetRefreshStatus.isEmpty { Text(widgetRefreshStatus).font(.caption) }
                     }
                     Section("Pronóstico") {
                         Text("Ubicación automática · temperaturas en °C. Habilitá la ubicación de la app y sus widgets para que el respaldo funcione al viajar.")
-                        Button("Permitir ubicación") { locationManager.requestWhenInUseAuthorization() }
+                        Button("Permitir ubicación") {
+                            switch locationManager.authorizationStatus {
+                            case .notDetermined:
+                                locationManager.requestWhenInUseAuthorization()
+                                locationStatus = "Solicitud enviada. Elegí el permiso en iOS."
+                            case .denied:
+                                locationStatus = "Permiso denegado. Habilitá la ubicación en Ajustes."
+                                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                            case .restricted: locationStatus = "El sistema restringe el acceso a ubicación."
+                            case .authorizedAlways, .authorizedWhenInUse: locationStatus = "Ubicación autorizada."
+                            @unknown default: locationStatus = "Estado de ubicación desconocido."
+                            }
+                        }
+                        if !locationStatus.isEmpty { Text(locationStatus).font(.caption) }
                         Text("Usá el atajo ClearWidget - Apple Weather (texto). La app convierte y valida los datos de Apple. No uses el mecanismo anterior de copiado de acciones.")
                         Text("Para actualizar al tocar el widget, asigná ese atajo a Acción principal o Abrir Clima. Podés añadir Abrir app al final del atajo si lo deseás.")
                         Link("Respaldo: Open-Meteo · ECMWF", destination: URL(string: "https://open-meteo.com/")!)
@@ -72,7 +94,14 @@ struct ClearWidgetApp: App {
                         Text("Referencias Clear Medium, Glass Small 7 y Clear Small de Lokki. Uso personal. No distribuir los recursos originales sin autorización.")
                     }
                 }.navigationTitle("ClearWidget")
-                    .onAppear { ClearSign.shared.update(); ClearSign.shared.schedule() }
+                    .onAppear { ClearSign.shared.update(); ClearSign.shared.schedule(); Task { await ClearSign.shared.refreshAlerts() } }
+                    .onChange(of: scenePhase) { _, phase in
+                        if phase == .active {
+                            ClearSign.shared.update(); ClearSign.shared.schedule()
+                            Task { await ClearSign.shared.refreshAlerts() }
+                            if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways { locationStatus = "Ubicación autorizada." }
+                        }
+                    }
             }
         }
     }

@@ -50,7 +50,9 @@ struct ClearRecoveryExportPanel: View {
     var body: some View {
         Text("Respaldo independiente de ClearSign · experimental").font(.headline)
         Text("Crea una copia cifrada de la sesión y de los perfiles de esta instalación. Conservá el archivo y su clave separados, solo en almacenamiento local. No los envíes ni los subas a servicios en la nube. No incluye contraseña ni clave privada de firma.").font(.caption)
-        Toggle("Autorizo crear una copia cifrada local", isOn: $consent)
+        Toggle("Autorizo crear una copia cifrada local", isOn: $consent).disabled(!signing.controls.canBackup)
+        if !signing.configured { Text("Primero configurá o importá una sesión.").font(.caption).foregroundStyle(.secondary) }
+        else if !signing.controls.canBackup { Text("Se necesita una vigencia comprobable y ninguna operación en curso.").font(.caption).foregroundStyle(.secondary) }
         Button("Preparar respaldo cifrado") {
             Task { @MainActor in
                 consent = false
@@ -62,7 +64,7 @@ struct ClearRecoveryExportPanel: View {
                     status = "Elegí En mi iPhone. La clave aparece abajo. El respaldo no es una garantía de recuperación."
                 } catch { status = "No se creó el respaldo cifrado." }
             }
-        }.disabled(!consent || !signing.configured || signing.running || signing.setupActive)
+        }.disabled(!consent || !signing.controls.canBackup)
         if !secret.isEmpty {
             Text("Clave del respaldo (no compartir)").font(.caption)
             Text(secret).font(.system(.caption, design: .monospaced)).textSelection(.enabled).privacySensitive()

@@ -57,10 +57,11 @@ private struct SetupSnapshot: Decodable {
         directory = nil; paired = false; verified = false
     }
     func enablePairNotification() async {
-        notified = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false
+        do { notified = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]); status = notified ? "Aviso del código local autorizado." : "Aviso denegado; podés leer el código en esta pantalla." }
+        catch { status = "No se pudo autorizar el aviso: " + error.localizedDescription }
     }
     func beginPair() {
-        guard !running else { return }
+        guard ClearSign.shared.controls.canStartSetup(setupRunning: running) else { status="Hay una operación en curso."; return }
         do {
             removeStaging()
             ClearSign.shared.setSetupActive(true)
@@ -73,7 +74,7 @@ private struct SetupSnapshot: Decodable {
         launch(directory.path.withCString { setupVerify($0) }, text: "Comprobando con LocalDevVPN…", pairing: false)
     }
     func authenticate(email: String, password: String, server: String) {
-        guard verified, !running, let directory, Self.providers.contains(server), !email.isEmpty, !password.isEmpty else { return }
+        guard verified, !running, !ClearSign.shared.running, ClearSign.shared.setupActive, let directory, Self.providers.contains(server), !email.isEmpty, !password.isEmpty else { status="Falta comprobar el emparejamiento o hay una operación en curso."; return }
         // Credentials only go into the explicitly initiated native operation. Never persist the password.
         let key = "clearsign.lastExplicitAuth"
         let last = UserDefaults.standard.double(forKey: key)
@@ -83,8 +84,9 @@ private struct SetupSnapshot: Decodable {
         launch(ok, text: "Autenticando en una sola ruta…", pairing: false)
     }
     func submit(_ code: String) {
-        guard needsCode, code.count == 6 else { return }
+        guard needsCode, code.utf8.count == 6, code.utf8.allSatisfy({ (48...57).contains($0) }) else { status="Ingresá seis dígitos."; return }
         if code.withCString({ setupCode($0) }) { needsCode = false; status = "Verificando el código una sola vez…" }
+        else { status="El motor no aceptó el código. No se realizó un nuevo intento." }
     }
     private func launch(_ ok: Bool, text: String, pairing: Bool) {
         guard ok else { if pairing { ClearSign.shared.setSetupActive(false) }; status = "El motor está ocupado o no pudo iniciar. No se reintentó."; return }
@@ -166,9 +168,11 @@ struct ClearSignSetupPanel: View {
         Text("Configurar ClearSign sin BariStore").font(.headline)
         Text(setup.status).font(.footnote)
         Button("Permitir aviso del código local") { Task { await setup.enablePairNotification() } }.disabled(setup.running)
-        Button("Crear emparejamiento propio") { setup.beginPair() }.disabled(setup.running || signing.running || signing.automatic)
+        Button("Crear emparejamiento propio") { setup.beginPair() }.disabled(!signing.controls.canStartSetup(setupRunning: setup.running))
+        if signing.automatic { Text("La renovación se pausa mientras configurás el emparejamiento.").font(.caption).foregroundStyle(.secondary) }
         if let c = setup.pairCode { Text(c).font(.title.monospacedDigit()).privacySensitive() }
-        Button("Comprobar emparejamiento") { setup.verify() }.disabled(!setup.paired || setup.running)
+        Button("Comprobar emparejamiento") { setup.verify() }.disabled(!setup.paired || setup.running || signing.running)
+        if !setup.paired { Text("Creá primero un emparejamiento propio.").font(.caption).foregroundStyle(.secondary) }
         if setup.verified && !setup.running {
             Text("No inicies sesión si Apple limitó tu cuenta. El método no es una API pública de autenticación de Apple. No guardamos la contraseña ni cambiamos certificados.").font(.caption)
             Picker("Servidor Anisette", selection: $server) { ForEach(ClearSignSetup.providers, id: \.self) { Text($0).tag($0) } }
@@ -177,11 +181,11 @@ struct ClearSignSetupPanel: View {
             Toggle("Autorizo un intento en esta ruta", isOn: $consent)
             Button("Autenticar una vez") {
                 setup.authenticate(email: email, password: password, server: server); password = ""; email = ""; consent = false
-            }.disabled(!consent || email.isEmpty || password.isEmpty || signing.running || signing.automatic)
+            }.disabled(!consent || email.isEmpty || password.isEmpty || signing.running || !signing.setupActive)
         }
         if setup.needsCode {
             SecureField("Código de seis dígitos", text: $code).keyboardType(.numberPad).textContentType(.oneTimeCode)
-            Button("Validar una vez") { setup.submit(code); code = "" }.disabled(code.count != 6)
+            Button("Validar una vez") { setup.submit(code); code = "" }.disabled(code.utf8.count != 6 || !code.utf8.allSatisfy { (48...57).contains($0) })
         }
         Button("Cancelar configuración") { setup.cancel(); email = ""; password = ""; code = ""; consent = false }.disabled(!setup.running && !setup.paired && !signing.setupActive)
     }

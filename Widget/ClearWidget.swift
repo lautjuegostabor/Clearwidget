@@ -182,7 +182,7 @@ private struct Provider: AppIntentTimelineProvider {
         let midnight = Calendar.autoupdatingCurrent.dateInterval(of: .day, for: date)?.end ?? date.addingTimeInterval(3600)
         let cache = ForecastDisk.cached(at: date)
         let planned = ForecastDisk.nextRefresh(at: date, cache: cache)
-        let refresh = tap ? min(planned, date.addingTimeInterval(60)) : planned
+        let refresh = planned // navigation redraws cached data; do not add a 60-second refresh
         let nextHour = Date(timeIntervalSince1970: (floor(date.timeIntervalSince1970 / 3600) + 1) * 3600)
         let next = context.family == .systemSmall ? min(refresh, nextHour) : min(midnight, refresh)
         var battery: Int?
