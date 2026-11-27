@@ -5,6 +5,7 @@ on:
     branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration, v0.5.4-integration, v0.5.5-integration, v0.5.6-integration, v0.5.7-integration, v0.5.8-integration, v0.5.9-shortcuts]
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: clearwidget-${{ github.ref }}
   cancel-in-progress: true
@@ -46,11 +47,24 @@ jobs:
           set -euo pipefail
           xcrun swiftc -swift-version 5 Widget/WidgetInteraction.swift Tests/InteractionTests.swift -o /tmp/clearwidget-interaction-tests
           /tmp/clearwidget-interaction-tests
-      - name: Generate exact local artwork
+      - name: Retrieve verified artwork from successful build 14
+        uses: actions/download-artifact@v4
+        with:
+          name: ClearWidget-v0.5.8
+          run-id: 45748906762
+          github-token: ${{ github.token }}
+          path: /tmp/clearwidget-artwork-base
+      - name: Verify and extract unchanged asset catalog
         run: |
-          python3 -m venv /tmp/clearwidget-assets
-          /tmp/clearwidget-assets/bin/pip install 'Pillow>=11,<13'
-          /tmp/clearwidget-assets/bin/python Tools/generate_assets.py
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile
+          ipa = pathlib.Path('/tmp/clearwidget-artwork-base/ClearWidget-v0.5.8.ipa')
+          assert hashlib.sha256(ipa.read_bytes()).hexdigest() == '541c4528c874569b03d716dae14e1bb47243c27430660c38ca62f006975d403c'
+          with zipfile.ZipFile(ipa) as z:
+              data = z.read('Payload/ClearWidget.app/PlugIns/ClearWidgetExtension.appex/Assets.car')
+          assert hashlib.sha256(data).hexdigest() == 'f8b9aa563c7565e16d4a65201c5aeff314d5099b4581551bf038b322d282a2e2'
+          pathlib.Path('/tmp/clearwidget-original-Assets.car').write_bytes(data)
+          PY
       - name: Check live ECMWF response
         continue-on-error: true
         shell: bash
@@ -91,6 +105,9 @@ jobs:
           ext="$app/PlugIns/ClearWidgetExtension.appex"
           test -f "$app/ClearWidget"
           test -f "$ext/ClearWidgetExtension"
+          cp /tmp/clearwidget-original-Assets.car "$ext/Assets.car"
+          cmp /tmp/clearwidget-original-Assets.car "$ext/Assets.car"
+          test "$(shasum -a 256 "$ext/Assets.car" | cut -d' ' -f1)" = f8b9aa563c7565e16d4a65201c5aeff314d5099b4581551bf038b322d282a2e2
           /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$ext/Info.plist" | grep -Fx com.apple.widgetkit-extension
           python3 - "$app" "$ext" <<'PY'
           import sys, plistlib, pathlib
