@@ -25,7 +25,7 @@ struct ClearWidgetApp: App {
                     Section("ClearWidget") {
                         Text("En la galería, elegí el tamaño pequeño o mediano. En Editar widget, el pequeño permite elegir Glass Small 7, Clear Small 20 o Clear Small 21. El mediano conserva Clear Medium.")
                         Text("Acción principal configura el panel de inicio del mediano o todo el pequeño. Clear Small 21 ofrece Calendario, Clima y Actividad por separado. Sin asignar no se abre ninguna app.")
-                        Text("Elegí la apariencia Transparente de iOS para el cristal nativo.")
+                        Text("Cristal independiente experimental: solicita el material Blur de iOS sin capturas del fondo. Si la API interna no está disponible, el widget conserva su comportamiento original. El resultado visual depende del compositor de iOS.")
                     }
                     Section("Diagnóstico de widgets") {
                         Text("Versión " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—") + " · Build " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"))

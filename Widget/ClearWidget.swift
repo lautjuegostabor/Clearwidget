@@ -487,6 +487,7 @@ private struct FamilyRoot: View {
 
 @main
 struct ClearWidget: Widget {
+    init() { CWInstallGlassDescriptorHook() }
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "ClearWidget", intent: ClearConfiguration.self, provider: Provider()) { entry in
             FamilyRoot(entry: entry)
