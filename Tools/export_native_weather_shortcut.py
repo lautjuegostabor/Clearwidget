@@ -48,3 +48,5 @@ out=pathlib.Path('/tmp/ClearWidget-Clima.unsigned.shortcut')
 out.write_bytes(p.dumps(wf,fmt=p.FMT_BINARY,sort_keys=False))
 assert p.loads(out.read_bytes())==wf
 print('Validated',len(A),'actions, references and eight compiled intent fields')
+
+# Export requested for build 16.
