@@ -1,0 +1,60 @@
+name: Native Material Lab
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/native-material-lab]
+permissions:
+  contents: read
+jobs:
+  lab:
+    runs-on: xcode-27
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: Research/NativeMaterialLab
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 27
+        run: |
+          python3 - <<'PY'
+          import glob, os, re, subprocess
+          choices=[]
+          for app in glob.glob('/Applications/Xcode*.app'):
+              p=app+'/Contents/Developer'
+              out=subprocess.run(['xcodebuild','-version'], env=dict(os.environ,DEVELOPER_DIR=p),capture_output=True,text=True).stdout
+              m=re.search(r'Xcode (\d+(?:\.\d+)*)',out)
+              if m and int(m[1].split('.')[0]) >= 27: choices.append((tuple(map(int,m[1].split('.'))),p))
+          assert choices, 'Xcode 27 required'
+          with open(os.environ['GITHUB_ENV'],'a') as f: f.write('DEVELOPER_DIR='+max(choices)[1]+'\n')
+          PY
+      - name: Check fixed kind scope and native SDK syntax
+        run: |
+          xcrun --sdk macosx clang -DCW_LAB_TEST -fobjc-arc -fblocks -framework Foundation Widget/NativeDescriptorLab.m Tests/StyleTests.m -o /tmp/cw-lab-test
+          /tmp/cw-lab-test
+          xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=27.0 -fobjc-arc -fblocks -fapplication-extension -fsyntax-only Widget/NativeDescriptorLab.m
+      - name: Build independent project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild -project NativeMaterialLab.xcodeproj -scheme NativeMaterialLab -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build ARCHS=arm64 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Verify package
+        run: |
+          app=build/Build/Products/Release-iphoneos/NativeMaterialLab.app
+          ext="$app/PlugIns/NativeMaterialLabExtension.appex"
+          test -f "$ext/NativeMaterialLabExtension"
+          python3 - "$app" "$ext" <<'PY'
+          import pathlib, plistlib, sys
+          for p,b in zip(sys.argv[1:],('com.clearwidget.materiallab','com.clearwidget.materiallab.widget')):
+              assert plistlib.loads((pathlib.Path(p)/'Info.plist').read_bytes())['CFBundleIdentifier']==b
+          bin=(pathlib.Path(sys.argv[2])/'NativeMaterialLabExtension').read_bytes()
+          for kind in (b'CWLabSystem',b'CWLabClear',b'CWLabBlur',b'CWLabGlass'): assert kind in bin
+          PY
+          mkdir Payload
+          cp -R "$app" Payload/
+          zip -qry NativeMaterialLab-0.1.0.ipa Payload
+          unzip -t NativeMaterialLab-0.1.0.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NativeMaterialLab-0.1.0
+          path: Research/NativeMaterialLab/NativeMaterialLab-0.1.0.ipa
+          if-no-files-found: error
