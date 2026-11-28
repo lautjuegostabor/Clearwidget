@@ -6,6 +6,8 @@ private enum LabVariant: String {
     case clear = "CWLabClear"
     case blur = "CWLabBlur"
     case glass = "CWLabGlass"
+    case glassOnClear = "CWLabGlassOnClear"
+    case glassOnBlur = "CWLabGlassOnBlur"
 
     var label: String {
         switch self {
@@ -13,6 +15,8 @@ private enum LabVariant: String {
         case .clear: return "Clear"
         case .blur: return "Blur"
         case .glass: return "Cristal del sistema"
+        case .glassOnClear: return "Glass + Clear"
+        case .glassOnBlur: return "Glass + Blur"
         }
     }
 }
@@ -48,7 +52,16 @@ private struct LabContent: View {
             Text(renderingName).font(.caption.monospaced())
             Text(showsBackground ? "Fondo visible" : "Fondo oculto").font(.caption2)
         }
+        .padding(variant == .glassOnClear || variant == .glassOnBlur ? 16 : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background {
+            if variant == .glassOnClear || variant == .glassOnBlur {
+                Color.clear
+                    .glassEffect(.clear, in: ContainerRelativeShape())
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
         .containerBackground(for: .widget) {
             if variant == .system {
                 Color.gray.opacity(0.2)
@@ -82,6 +95,13 @@ private struct GlassLabWidget: Widget {
     var body: some WidgetConfiguration { labConfiguration(.glass) }
 }
 
+private struct GlassOnClearLabWidget: Widget {
+    var body: some WidgetConfiguration { labConfiguration(.glassOnClear).contentMarginsDisabled() }
+}
+private struct GlassOnBlurLabWidget: Widget {
+    var body: some WidgetConfiguration { labConfiguration(.glassOnBlur).contentMarginsDisabled() }
+}
+
 @main
 struct NativeMaterialLabWidgets: WidgetBundle {
     init() { CWLabInstall() }
@@ -90,5 +110,7 @@ struct NativeMaterialLabWidgets: WidgetBundle {
         ClearLabWidget()
         BlurLabWidget()
         GlassLabWidget()
+        GlassOnClearLabWidget()
+        GlassOnBlurLabWidget()
     }
 }

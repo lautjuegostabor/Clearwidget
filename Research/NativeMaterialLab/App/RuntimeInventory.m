@@ -84,6 +84,60 @@ static void CWGlassValues(NSMutableString *out) {
         } @catch(NSException *e) { [out appendFormat:@"%lld: rejected (%@)\n",style,e.name]; }
     }
 }
+// Descriptor styles and tint styles are independent enum domains.
+// Evaluate descriptor copies locally; do not transmit unverified style values.
+static NSString *CWFamilyBool(id obj, NSString *name, long long family) {
+    SEL sel=NSSelectorFromString(name);
+    const char *types[]={"q"};
+    if (!obj || !CWSignature(object_getClass(obj),sel,"B",types,1)) return @"?";
+    return ((BOOL(*)(id,SEL,long long))objc_msgSend)(obj,sel,family)?@"1":@"0";
+}
+static void CWDescriptorValues(NSMutableString *out) {
+    [out appendString:@"\n--- Local descriptor styles (separate from filterStyle) ---\n"];
+    Class cls=NSClassFromString(@"CHSWidgetDescriptor");
+    SEL init=NSSelectorFromString(@"initWithExtensionBundleIdentifier:containerBundleIdentifier:kind:supportedFamilies:intentType:");
+    const char *types[]={"@","@","@","Q","@"};
+    if (!cls || !CWSignature(cls,init,"@",types,5)) {
+        [out appendString:@"Descriptor initializer unavailable or incompatible.\n"]; return;
+    }
+    NSString *host=NSBundle.mainBundle.bundleIdentifier;
+    if (!host.length) return;
+    // Resolve the real embedded extension, without assuming how BariStore rewrote its identifier.
+    NSURL *plugins=NSBundle.mainBundle.builtInPlugInsURL;
+    NSArray *children=plugins ? [[NSFileManager defaultManager] contentsOfDirectoryAtURL:plugins includingPropertiesForKeys:nil options:0 error:nil] : nil;
+    NSString *ext=nil;
+    for (NSURL *url in children) if ([url.pathExtension isEqualToString:@"appex"]) {
+        NSBundle *bundle=[NSBundle bundleWithURL:url];
+        if ([bundle.executablePath.lastPathComponent isEqualToString:@"NativeMaterialLabExtension"]) { ext=bundle.bundleIdentifier; break; }
+    }
+    if (!ext.length) { [out appendString:@"Lab extension identifier unavailable.\n"]; return; }
+    SEL setStyle=NSSelectorFromString(@"setPreferredBackgroundStyle:");
+    SEL setTransparent=NSSelectorFromString(@"setTransparent:");
+    SEL setRemovable=NSSelectorFromString(@"setBackgroundRemovable:");
+    const char *integer[]={"q"},*boolean[]={"B"};
+    for (long long style=0;style<=6;style++) {
+        @try {
+            id original=((id(*)(id,SEL,id,id,id,unsigned long long,id))objc_msgSend)([cls alloc],init,ext,host,@"CWLabLocalProbe",1ULL,nil);
+            id obj=[original mutableCopy];
+            if (!obj || obj==original || !CWSignature(object_getClass(obj),setStyle,"v",integer,1) ||
+                !CWSignature(object_getClass(obj),setTransparent,"v",boolean,1) ||
+                !CWSignature(object_getClass(obj),setRemovable,"v",boolean,1)) {
+                [out appendString:@"Mutable descriptor unavailable or incompatible.\n"]; return;
+            }
+            ((void(*)(id,SEL,BOOL))objc_msgSend)(obj,setTransparent,YES);
+            ((void(*)(id,SEL,BOOL))objc_msgSend)(obj,setRemovable,YES);
+            ((void(*)(id,SEL,long long))objc_msgSend)(obj,setStyle,style);
+            [out appendFormat:@"style=%lld readback=%@ transparent=%@ material(family 0/1/2)=%@/%@/%@\n",style,
+             CWReadInteger(obj,@"preferredBackgroundStyle","q"),CWReadBool(obj,@"isTransparent"),
+             CWFamilyBool(obj,@"wantsMaterialBackgroundForFamily:",0),CWFamilyBool(obj,@"wantsMaterialBackgroundForFamily:",1),CWFamilyBool(obj,@"wantsMaterialBackgroundForFamily:",2)];
+            // The descriptor's own human-readable representation may expose the enum name.
+            NSString *desc=[obj description];
+            if (desc.length>1200) desc=[desc substringToIndex:1200];
+            [out appendFormat:@"  %@\n",desc ?: @""];
+        } @catch(NSException *e) { [out appendFormat:@"%lld: rejected (%@)\n",style,e.name]; }
+    }
+}
+
 static void CWFindGlassOwners(NSMutableString *out) {
     [out appendString:@"\n--- Local class metadata: glass/tint ownership ---\n"];
     const char *images[]={
@@ -128,6 +182,7 @@ NSString *CWLabRuntimeInventory(void) {
         CWListClass(out,cls,[name containsString:@"GlassOptions"] || [name containsString:@"TintParameters"]);
     }
     CWGlassValues(out);
+    CWDescriptorValues(out);
     CWFindGlassOwners(out);
     return out;
 }

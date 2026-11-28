@@ -6,11 +6,11 @@
 #import <string.h>
 #import <stdlib.h>
 
-// Scope: only this lab extension and its two named descriptors.
+// Scope: only this lab extension and four named experimental descriptors.
 // No IPC, no changes to other widgets, no access to the renderer process.
 NSInteger CWLabStyleForKind(NSString *kind) {
-    if ([kind isEqualToString:@"CWLabClear"]) return 1;
-    if ([kind isEqualToString:@"CWLabBlur"]) return 2;
+    if ([kind isEqualToString:@"CWLabClear"] || [kind isEqualToString:@"CWLabGlassOnClear"]) return 1;
+    if ([kind isEqualToString:@"CWLabBlur"] || [kind isEqualToString:@"CWLabGlassOnBlur"]) return 2;
     return 0;
 }
 static BOOL CWMethod(Method method, char result, unsigned n) {
