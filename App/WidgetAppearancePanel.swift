@@ -33,7 +33,7 @@ struct WidgetAppearancePanel: View {
             }
             Text(status).font(.footnote).accessibilityIdentifier("appearance.status")
             Text(descriptorStatus).font(.footnote).accessibilityIdentifier("appearance.readback")
-            Button("Comprobar estado") { restoreAndRefresh(); requestDescriptorReload() }
+            Button("Comprobar estado") { restoreAndRefresh(forceReadback: true) }
             Text("Liquid Glass prueba el material nativo de SwiftUI, sin fondo de pantalla. La lectura del descriptor no demuestra refracción óptica.")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -44,13 +44,15 @@ struct WidgetAppearancePanel: View {
         }
         .onDisappear { observation?.cancel(); observation = nil }
     }
-    @MainActor private func restoreAndRefresh() {
+    @MainActor private func restoreAndRefresh(forceReadback: Bool = false) {
         do {
-            if try AppearancePreference.restoreRequest() {
+            selected = AppearancePreference.current()
+            let restored = try AppearancePreference.restoreRequest()
+            if restored {
                 WidgetCenter.shared.invalidateConfigurationRecommendations()
                 WidgetCenter.shared.reloadTimelines(ofKind:"ClearWidget")
-                requestDescriptorReload()
             }
+            if restored || forceReadback { requestDescriptorReload() }
             refreshStatus()
         } catch { status = "No se pudo enviar la selección: \(error.localizedDescription)" }
     }

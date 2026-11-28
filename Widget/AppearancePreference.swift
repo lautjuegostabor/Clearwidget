@@ -81,9 +81,9 @@ enum AppearancePreference {
         guard try transport.readRequest() == record else { return .pending }
         return AppearanceDelivery.resolve(request:record,timeline:try transport.readTimeline(),descriptor:try transport.readDescriptor())
     }
-    static func acknowledgeTimeline() {
+    static func acknowledgeTimeline(_ renderedRecord: AppearanceRecord?) {
         lock.lock(); defer { lock.unlock() }
-        guard isExtension, let record = currentRecord() else { return }
+        guard isExtension, let record = renderedRecord, currentRecord() == record else { return }
         try? bus().acknowledge(record)
     }
     static func report(mode:Int32,revision:UInt64,outcome:Int32) {

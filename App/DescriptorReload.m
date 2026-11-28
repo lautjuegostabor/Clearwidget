@@ -44,7 +44,9 @@ static NSString *CWDescribeOwn(id result, NSInteger expectedStyle, NSString *ide
             if (style.integerValue==expectedStyle) correct++;
         }
         if (!matches) return @"iOS respondió; no se identificó el descriptor propio.";
-        NSString *values=[[[styles allObjects] sortedArrayUsingSelector:@selector(compare:)] componentsJoinedByString:@", "];
+        NSMutableArray<NSString *> *strings=[NSMutableArray array];
+        for (NSNumber *style in [[styles allObjects] sortedArrayUsingSelector:@selector(compare:)]) [strings addObject:style.stringValue];
+        NSString *values=[strings componentsJoinedByString:@", "];
         if (expectedStyle<0) return [NSString stringWithFormat:@"Descriptor leído: estilo %@. Sistema no impone un valor.",values];
         return [NSString stringWithFormat:@"Descriptor leído: estilo %@; esperado %ld. %@ No confirma el material visual.", values,(long)expectedStyle,correct==matches?@"Coincide.":@"No coincide."];
     } @catch (NSException *exception) {

@@ -131,7 +131,8 @@ private struct Entry: TimelineEntry {
     var todayLow: Double? = nil
     var weatherSource: String? = nil
     var displayedWeatherFetchedAt: Date? = nil
-    var appearance: WidgetAppearance = .system
+    var appearanceRecord: AppearanceRecord? = nil
+    var appearance: WidgetAppearance { appearanceRecord?.selection ?? .system }
 }
 
 private struct Provider: AppIntentTimelineProvider {
@@ -161,7 +162,7 @@ private struct Provider: AppIntentTimelineProvider {
             todayLow: animated && smallPage == .weather ? cache?.todayMinimum(at: now) : nil,
             weatherSource: cache?.source,
             displayedWeatherFetchedAt: displayedWeatherFetchedAt,
-            appearance: AppearancePreference.current())
+            appearanceRecord: AppearancePreference.currentRecord())
     }
     func placeholder(in context: Context) -> Entry {
         Entry(date: Date(), page: .home, weather: .empty, glass: .empty, configuration: ClearConfiguration())
@@ -195,7 +196,7 @@ private struct Provider: AppIntentTimelineProvider {
         let currentEntry = entry(at: date, configuration: configuration, family: context.family, cache: cache, battery: battery)
         if !context.isPreview {
             CWInstallGlassDescriptorHook()
-            AppearancePreference.acknowledgeTimeline()
+            AppearancePreference.acknowledgeTimeline(currentEntry.appearanceRecord)
             if CWGlassDescriptorHookAvailable() == 0, let record = AppearancePreference.currentRecord(), record.mode != 0 {
                 AppearancePreference.report(mode:Int32(record.mode),revision:record.revision,outcome:3)
             }
