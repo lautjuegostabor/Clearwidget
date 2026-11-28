@@ -1,0 +1,72 @@
+name: Native Material Firmware Audit 24B156
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/native-material-lab]
+    paths: ['.github/workflows/native-material-firmware-audit.yml']
+permissions:
+  contents: read
+jobs:
+  extract:
+    runs-on: xcode-27
+    timeout-minutes: 30
+    env:
+      FIRMWARE_URL: https://updates.cdn-apple.com/2026FallFCS/72981b11-802f-4be1-8345-01eecd9908fe/iPhone19,2,iPhone19,3,iPhone19,7_27.2.1_24B156_Restore.ipsw
+    steps:
+      - name: Install firmware inspection tool
+        run: |
+          set -e
+          mkdir -p "$RUNNER_TEMP/material-audit"
+          brew install blacktop/tap/ipsw
+          ipsw version | tee "$RUNNER_TEMP/material-audit/tool-version.txt"
+      - name: Extract target device dyld cache directly from Apple
+        run: |
+          set -eo pipefail
+          mkdir -p "$RUNNER_TEMP/24B156-cache"
+          df -h
+          ipsw extract --remote --dyld --device iPhone19,7 --dyld-arch arm64e --output "$RUNNER_TEMP/24B156-cache" "$FIRMWARE_URL" 2>&1 | tee "$RUNNER_TEMP/material-audit/extraction.log"
+          find "$RUNNER_TEMP/24B156-cache" -name 'dyld_shared_cache_arm64e*' -print | tee "$RUNNER_TEMP/material-audit/cache-files.txt"
+          cache=$(find "$RUNNER_TEMP/24B156-cache" -type f -name dyld_shared_cache_arm64e -print -quit)
+          test -n "$cache"
+          echo "DSC=$cache" >> "$GITHUB_ENV"
+          ipsw dyld info "$cache" --no-color > "$RUNNER_TEMP/material-audit/cache-info.txt"
+      - name: Extract class metadata and decisive methods
+        run: |
+          set -e
+          cd "$RUNNER_TEMP/material-audit"
+          python3 - <<'PY'
+          import os, subprocess, pathlib, re
+          cache=os.environ['DSC']
+          targets={
+             'ChronoUIServices': ['CHUISWidgetHostViewController','CHUISWidgetSceneSettings','CHUISMutableWidgetSceneClientSettings','CHUISSolariumEffectView'],
+             'ChronoServices': ['CHSBaseDescriptor','CHSWidgetDescriptor','CHSWidgetTintParameters','CHSGlassOptions','CHSWidgetRenderScheme'],
+             'SpringBoardHome': ['SBHWidgetIconStyleConfiguration','SBHWidgetStyleManager','SBHWidgetStackViewController','SBHWidgetViewController'],
+             'WidgetRenderer': ['LiveWidgetEntryViewModel','InProcessWidgetInstance'],
+          }
+          methods={
+            'ChronoUIServices': ['-[CHUISWidgetHostViewController _expectedBackgroundViewMode]','-[CHUISWidgetHostViewController _setBackgroundViewMode:]','-[CHUISWidgetHostViewController usesSystemBackgroundMaterial]','-[CHUISWidgetHostViewController _isContentEffectivelyTransparent]'],
+            'ChronoServices': ['-[CHSWidgetDescriptor wantsMaterialBackgroundForFamily:]','-[CHSWidgetDescriptor isTransparentForFamily:]','-[CHSWidgetTintParameters wantsGlassMaterial]'],
+            'SpringBoardHome': ['-[SBHWidgetIconStyleConfiguration _generateTintParametersForWidgetDescriptor:]','-[SBHWidgetIconStyleConfiguration _generateParameters]','+[SBHWidgetStackViewController _shouldDrawSystemBackgroundMaterialForWidget:widgetViewController:]'],
+          }
+          failures=[]
+          def capture(args, path):
+              print(path, flush=True)
+              with open(path,'w') as f:
+                  r=subprocess.run(['ipsw',*args,'--no-color'],stdout=f,stderr=subprocess.STDOUT)
+              if r.returncode: failures.append((path,r.returncode))
+          for fw, names in targets.items():
+              image='/System/Library/PrivateFrameworks/'+fw+'.framework/'+fw
+              capture(['class-dump',cache,image,'--class','|'.join(names),'--re'],fw+'-classes.txt')
+              for method in methods.get(fw,[]):
+                  filename=fw+'-'+re.sub(r'[^a-zA-Z0-9]+','_',method)+'.asm.txt'
+                  capture(['dyld','disass',cache,'--symbol-image',image,'--symbol',method],filename)
+          capture(['dyld','image',cache,'/System/Library/Frameworks/WidgetKit.framework/WidgetKit'],'WidgetKit-image.txt')
+          pathlib.Path('failures.txt').write_text(repr(failures))
+          if failures: print('Some methods unavailable; evidence preserved',failures)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: NativeMaterialFirmware24B156Evidence
+          path: ${{ runner.temp }}/material-audit/
+          if-no-files-found: warn
