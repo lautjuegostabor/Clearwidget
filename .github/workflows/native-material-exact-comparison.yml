@@ -1,0 +1,207 @@
+name: Native Material Exact Comparison
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/native-material-lab]
+    paths:
+      - '.github/workflows/native-material-exact-comparison.yml'
+permissions:
+  contents: read
+jobs:
+  simulator:
+    runs-on: xcode-27
+    timeout-minutes: 18
+    defaults:
+      run:
+        working-directory: Research/NativeMaterialLab
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode and check actual WidgetKit ABI
+        run: |
+          python3 - <<'PY'
+          import glob, os, re, subprocess, pathlib, platform
+          choices=[]
+          for app in glob.glob('/Applications/Xcode*.app'):
+              p=app+'/Contents/Developer'
+              out=subprocess.run(['xcodebuild','-version'],env=dict(os.environ,DEVELOPER_DIR=p),capture_output=True,text=True).stdout
+              m=re.search(r'Xcode (\d+(?:\.\d+)*)',out)
+              if m and int(m[1].split('.')[0])>=27: choices.append((tuple(map(int,m[1].split('.'))),p))
+          assert choices
+          developer=max(choices)[1]
+          env=dict(os.environ,DEVELOPER_DIR=developer)
+          def run(args, **kwargs):
+              return subprocess.check_output(args,env=env,text=True,**kwargs).strip()
+          sdk=run(['xcrun','--sdk','iphonesimulator','--show-sdk-path'])
+          fw=pathlib.Path(sdk)/'System/Library/Frameworks/WidgetKit.framework'
+          symbols=sorted(set(re.findall(r'[_$][A-Za-z0-9_$]+',(fw/'WidgetKit.tbd').read_text())))
+          demangled=run(['xcrun','swift-demangle'],input='\n'.join(symbols)+'\n')
+          relevant=[l for l in demangled.splitlines() if 'WidgetBackgroundStyle' in l or 'preferredBackgroundStyle' in l]
+          print('\n'.join(relevant))
+          assert any('preferredBackgroundStyle(WidgetKit.WidgetBackgroundStyle)' in l for l in relevant), 'modifier ABI not confirmed'
+          cases=set(re.findall(r'enum case for WidgetKit\.WidgetBackgroundStyle\.([A-Za-z_]+)', '\n'.join(relevant)))
+          # Do not invent an enum layout; require the cases exposed by the real linker stub.
+          assert cases=={'opaque','blur','transparent'}, ('unverified enum cases',cases)
+          arch=platform.machine()
+          target=arch+'-apple-ios-simulator'
+          candidates=[fw/'Modules/WidgetKit.swiftmodule'/f'{target}.swiftinterface',fw/'Modules/WidgetKit.swiftmodule'/f'{target}.private.swiftinterface']
+          source=next((p for p in candidates if p.exists()),None)
+          assert source, candidates
+          interface=source.read_text()
+          # A build-local interface only. Never modify the system SDK.
+          if 'enum WidgetBackgroundStyle' not in interface:
+              interface+='\n@available(iOS 17.0, *)\npublic enum WidgetBackgroundStyle {\n case opaque\n case blur\n case transparent\n}\n'
+          if 'func preferredBackgroundStyle(' not in interface:
+              interface+='\n@available(iOS 17.0, *)\nextension SwiftUI.WidgetConfiguration {\n @_Concurrency.MainActor @preconcurrency public func preferredBackgroundStyle(_ style: WidgetKit.WidgetBackgroundStyle) -> some SwiftUI.WidgetConfiguration\n}\n'
+          module=pathlib.Path('build-local-sdk/WidgetKit.swiftmodule')
+          module.mkdir(parents=True,exist_ok=True)
+          (module/(target+'.swiftinterface')).write_text(interface)
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+              f.write('DEVELOPER_DIR='+developer+'\nSIM_ARCH='+arch+'\nSIM_SDK='+sdk+'\n')
+          PY
+      - name: Typecheck and link the native modifier without an IPA
+        run: |
+          cat > /tmp/CWNativeModifier.swift <<'SWIFT'
+          import SwiftUI
+          import WidgetKit
+          @MainActor public func nativeBackground<C: WidgetConfiguration>(_ configuration: C) -> some WidgetConfiguration {
+              configuration.preferredBackgroundStyle(.blur)
+          }
+          SWIFT
+          xcrun --sdk iphonesimulator swiftc -target "$SIM_ARCH-apple-ios27.0-simulator" -sdk "$SIM_SDK" -I "$PWD/build-local-sdk" -module-cache-path "$PWD/build-module-cache" -emit-library /tmp/CWNativeModifier.swift -o /tmp/libCWNativeModifier.dylib
+          nm -u /tmp/libCWNativeModifier.dylib | xcrun swift-demangle | tee /tmp/native-imports.txt
+          grep -F 'preferredBackgroundStyle' /tmp/native-imports.txt
+      - name: Prepare simulator-only candidate inside the existing lab
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          Path('Widget/LabWidget.swift').write_text("import AppIntents\nimport SwiftUI\nimport WidgetKit\n\nstruct MaterialChoice: WidgetConfigurationIntent {\n    static var title: LocalizedStringResource = \"Material comparison\"\n}\nstruct MaterialEntry: TimelineEntry {\n    let date: Date\n}\nstruct MaterialProvider: AppIntentTimelineProvider {\n    func placeholder(in context: Context) -> MaterialEntry { MaterialEntry(date: .now) }\n    func snapshot(for configuration: MaterialChoice, in context: Context) async -> MaterialEntry { MaterialEntry(date: .now) }\n    func timeline(for configuration: MaterialChoice, in context: Context) async -> Timeline<MaterialEntry> {\n        Timeline(entries: [MaterialEntry(date: .now)], policy: .never)\n    }\n}\nstruct MaterialContent: View {\n    let name: String\n    @Environment(\\.widgetRenderingMode) var mode\n    var body: some View {\n        VStack(spacing: 8) {\n            Image(systemName: \"circle.lefthalf.filled\").font(.title2)\n            Text(name).font(.headline)\n            Text(mode == .fullColor ? \"fullColor\" : \"accented\").font(.caption.monospaced())\n        }\n        .frame(maxWidth: .infinity, maxHeight: .infinity)\n        .containerBackground(for: .widget) { Color.clear }\n    }\n}\nstruct ExactMaterial: Widget {\n    var body: some WidgetConfiguration {\n        AppIntentConfiguration(kind: \"CWLabExactGlass\", intent: MaterialChoice.self, provider: MaterialProvider()) { _ in\n            MaterialContent(name: \"Exact Glass\")\n        }\n        .configurationDisplayName(\"Exact Glass\")\n        .description(\"Original descriptor, AppIntent, fixed size\")\n        .supportedFamilies([.systemSmall])\n        .contentMarginsDisabled()\n    }\n}\nstruct NativeBaseline: Widget {\n    var body: some WidgetConfiguration {\n        AppIntentConfiguration(kind: \"CWLabBaselineBlur\", intent: MaterialChoice.self, provider: MaterialProvider()) { _ in\n            MaterialContent(name: \"Baseline Blur\")\n        }\n        .configurationDisplayName(\"Baseline Blur\")\n        .description(\"Original WidgetKit modifier\")\n        .supportedFamilies([.systemSmall])\n        .contentMarginsDisabled()\n        .preferredBackgroundStyle(.blur)\n    }\n}\n@main struct MaterialComparison: WidgetBundle {\n    init() { CWInstallExactMaterial() }\n    var body: some Widget { ExactMaterial(); NativeBaseline() }\n}\n")
+          Path('Widget/NativeDescriptorLab.m').write_text("#import \"NativeDescriptorLab.h\"\n#import <objc/runtime.h>\n#import <objc/message.h>\n#import <os/log.h>\n#import <string.h>\n\ntypedef void (*DescriptorEncoder)(id, SEL, NSCoder *);\nstatic DescriptorEncoder previousEncoder;\nstatic ptrdiff_t styleOffset;\nstatic void ExactEncode(id object, SEL selector, NSCoder *coder) {\n    if ([object respondsToSelector:NSSelectorFromString(@\"kind\")] &&\n        [object respondsToSelector:NSSelectorFromString(@\"extensionBundleIdentifier\")]) {\n        id kind = ((id(*)(id,SEL))objc_msgSend)(object, NSSelectorFromString(@\"kind\"));\n        id owner = ((id(*)(id,SEL))objc_msgSend)(object, NSSelectorFromString(@\"extensionBundleIdentifier\"));\n        if ([kind isEqual:@\"CWLabExactGlass\"] &&\n            [owner isEqual:NSBundle.mainBundle.bundleIdentifier]) {\n            NSInteger oldValue = 0, newValue = 2;\n            char *storage = (char *)(__bridge void *)object + styleOffset;\n            memcpy(&oldValue, storage, sizeof(oldValue));\n            memcpy(storage, &newValue, sizeof(newValue));\n            os_log(OS_LOG_DEFAULT, \"CWExact: original descriptor backgroundStyle %{public}ld -> 2\", (long)oldValue);\n        }\n    }\n    previousEncoder(object,selector,coder);\n}\nvoid CWInstallExactMaterial(void) {\n    @synchronized(NSObject.class) {\n        if (previousEncoder) return;\n        Class base = NSClassFromString(@\"CHSBaseDescriptor\");\n        Class desc = NSClassFromString(@\"CHSWidgetDescriptor\");\n        if (!base || !desc) { os_log_error(OS_LOG_DEFAULT,\"CWExact: descriptor class unavailable\"); return; }\n        Ivar ivar = class_getInstanceVariable(base,\"_preferredBackgroundStyle\");\n        if (!ivar || strcmp(ivar_getTypeEncoding(ivar), \"q\") != 0) { os_log_error(OS_LOG_DEFAULT,\"CWExact: unsupported layout\"); return; }\n        styleOffset = ivar_getOffset(ivar);\n        if (styleOffset < 0 || (size_t)styleOffset+sizeof(NSInteger)>class_getInstanceSize(base)) return;\n        SEL selector = @selector(encodeWithCoder:);\n        unsigned count = 0; Method *methods = class_copyMethodList(desc,&count); Method method = NULL;\n        for(unsigned i=0;i<count;i++) if(method_getName(methods[i])==selector){method=methods[i];break;}\n        free(methods);\n        if (!method || method_getNumberOfArguments(method)!=3) return;\n        char *ret=method_copyReturnType(method), *arg=method_copyArgumentType(method,2);\n        BOOL valid=ret && ret[0]=='v' && arg && arg[0]=='@';\n        free(ret); free(arg);\n        if (!valid) return;\n        previousEncoder=(DescriptorEncoder)method_getImplementation(method);\n        if (!previousEncoder) return;\n        method_setImplementation(method,(IMP)ExactEncode);\n        os_log(OS_LOG_DEFAULT,\"CWExact: installed on own extension\");\n    }\n}\n__attribute__((constructor)) static void CWExactEarly(void) {\n    @autoreleasepool { CWInstallExactMaterial(); }\n}\n")
+          Path('Widget/NativeDescriptorLab.h').write_text('#import <Foundation/Foundation.h>\nvoid CWInstallExactMaterial(void);\n')
+          p=Path('project.yml')
+          s=p.read_text()
+          assert 'schemes:\n' in s
+          s=s.replace('schemes:\n','''  NativeMaterialLabUITests:
+              type: bundle.ui-testing
+              platform: iOS
+              sources: [UITests]
+              dependencies:
+                - target: NativeMaterialLab
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.clearwidget.materiallab.uitests
+                  GENERATE_INFOPLIST_FILE: 'YES'
+                  TEST_TARGET_NAME: NativeMaterialLab
+          schemes:
+          ''',1)
+          s=s.replace('        NativeMaterialLab: all\n','        NativeMaterialLab: all\n    test:\n      targets:\n        - NativeMaterialLabUITests\n')
+          p.write_text(s)
+          PY
+          mkdir -p UITests
+          cat > UITests/NativeMaterialUITests.swift <<'SWIFT'
+          import XCTest
+
+          final class NativeMaterialUITests: XCTestCase {
+              private func record(_ name: String, _ app: XCUIApplication) {
+                  let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+                  screenshot.name = name
+                  screenshot.lifetime = .keepAlways
+                  add(screenshot)
+                  let hierarchy = XCTAttachment(string: app.debugDescription)
+                  hierarchy.name = name + "-hierarchy"
+                  hierarchy.lifetime = .keepAlways
+                  add(hierarchy)
+              }
+
+              private func item(_ label: String, in app: XCUIApplication) -> XCUIElement {
+                  app.descendants(matching: .any).matching(NSPredicate(format: "label ==[c] %@", label)).firstMatch
+              }
+
+              func testHostWidgetGallery() {
+                  continueAfterFailure = false
+                  let app = XCUIApplication()
+                  app.launch()
+                  XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
+                  XCUIDevice.shared.press(.home)
+                  let home = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+                  defer { record("final-home", home) }
+                  record("initial-home", home)
+                  // Use the real Home Screen gallery, not a SwiftUI preview.
+                  home.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.78)).press(forDuration: 1.5)
+                  let editHome = item("Edit Home Screen", in: home)
+                  if editHome.exists && editHome.isHittable { editHome.tap() }
+                  let edit = item("Edit", in: home)
+                  if edit.waitForExistence(timeout: 5) && edit.isHittable { edit.tap() }
+                  record("editing-home", home)
+                  let add = item("Add Widget", in: home)
+                  let plus = item("Add", in: home)
+                  if add.waitForExistence(timeout: 5) && add.isHittable { add.tap() }
+                  else if plus.exists && plus.isHittable { plus.tap() }
+                  else { XCTFail("No accessible Add Widget control"); return }
+                  record("widget-gallery", home)
+                  // Previous evidence showed the actual cell was already visible, while
+                  // a same-named Home Screen icon and a first-use keyboard obscured it.
+                  let lab = home.cells.matching(NSPredicate(format: "label ==[c] %@", "Material Lab")).firstMatch
+                  for _ in 0..<8 {
+                      if lab.exists && lab.isHittable { break }
+                      home.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.76))
+                          .press(forDuration: 0.05, thenDragTo: home.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)))
+                  }
+                  guard lab.waitForExistence(timeout: 5) && lab.isHittable else { record("lab-cell-missing", home); XCTFail("Material Lab gallery cell not reachable"); return }
+                  lab.tap()
+                  record("lab-detail-initial", home)
+                  // Only inspect gallery controls; an accessibility label may include kind,
+                  // family, description and contents rather than equal the title.
+                  let candidate = home.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Exact Glass")).firstMatch
+                  let preview = home.descendants(matching: .any).matching(NSPredicate(format: "identifier CONTAINS[c] %@", "CWLabExactGlass")).firstMatch
+                  for i in 0..<18 {
+                      if (candidate.exists && candidate.isHittable) || (preview.exists && preview.isHittable) { break }
+                      record("gallery-page-\(i)", home)
+                      home.coordinate(withNormalizedOffset: CGVector(dx: 0.81, dy: 0.47))
+                          .press(forDuration: 0.05, thenDragTo: home.coordinate(withNormalizedOffset: CGVector(dx: 0.19, dy: 0.47)))
+                  }
+                  record("candidate-gallery", home)
+                  guard (candidate.exists && candidate.isHittable) || (preview.exists && preview.isHittable) else { XCTFail("Exact Glass kind not reachable"); return }
+                  let addWidget = home.buttons.matching(NSPredicate(format: "label ENDSWITH[c] %@", "Add Widget")).firstMatch
+                  guard addWidget.waitForExistence(timeout: 5) && addWidget.isHittable else { XCTFail("Candidate has no add control"); return }
+                  addWidget.tap()
+                  let done = item("Done", in: home)
+                  if done.waitForExistence(timeout: 5) && done.isHittable { done.tap() }
+                  let installed = home.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", "Exact Glass")).firstMatch
+                  XCTAssertTrue(installed.waitForExistence(timeout: 15), "Candidate not confirmed on Home Screen")
+                  XCTAssertFalse(candidate.exists && candidate.isHittable, "Gallery still open")
+                  record("exact-glass-on-home", home)
+              }
+          }
+          SWIFT
+          brew install xcodegen
+          xcodegen generate
+      - name: Boot iPhone 18 Pro Max iOS 27.2
+        run: |
+          device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; matches=[x["udid"] for k,items in d.items() if k.endswith("iOS-27-2") for x in items if x["name"]=="iPhone 18 Pro Max"]; assert matches; print(matches[0])')
+          echo "SIM_DEVICE=$device" >> "$GITHUB_ENV"
+          xcrun simctl boot "$device" || xcrun simctl bootstatus "$device" -b
+          xcrun simctl bootstatus "$device" -b
+          xcrun simctl ui "$device" appearance light
+      - name: Verify candidate on SpringBoard via XCTest
+        run: |
+          set -o pipefail
+          xcodebuild -project NativeMaterialLab.xcodeproj -scheme NativeMaterialLab -configuration Debug -sdk iphonesimulator -destination "id=$SIM_DEVICE" -derivedDataPath sim-build -resultBundlePath simulator-results.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO SWIFT_INCLUDE_PATHS="$PWD/build-local-sdk" test | tee simulator-build.log
+      - name: Export evidence even if the gallery is inaccessible
+        if: always()
+        run: |
+          mkdir -p simulator-evidence
+          if [ -d simulator-results.xcresult ]; then
+            xcrun xcresulttool export attachments --path simulator-results.xcresult --output-path simulator-evidence || true
+            xcrun xcresulttool get test-results summary --path simulator-results.xcresult > simulator-evidence/test-summary.json || true
+          fi
+          if [ -n "${SIM_DEVICE:-}" ]; then
+            xcrun simctl io "$SIM_DEVICE" screenshot simulator-evidence/home.png || true
+            xcrun simctl spawn "$SIM_DEVICE" log show --last 8m --info --debug --style compact --predicate 'process == "SpringBoard" OR process == "chronod" OR process == "NativeMaterialLabExtension"' | grep -Ei "CWExact|CWLabExactGlass|CWLabBaselineBlur|glass background|material background|background view mode|tintParameters|filterStyle|solarium" > simulator-evidence/host.log || true
+          fi
+          if [ -f simulator-build.log ]; then cp simulator-build.log simulator-evidence/; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: NativeMaterialExactEvidence
+          path: Research/NativeMaterialLab/simulator-evidence/
+          if-no-files-found: warn
