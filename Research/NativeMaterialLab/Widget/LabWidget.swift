@@ -59,27 +59,36 @@ private struct LabContent: View {
     }
 }
 
-private struct LabWidget: Widget {
-    let variant: LabVariant
-    var body: some WidgetConfiguration {
-        StaticConfiguration(kind: variant.rawValue, provider: LabProvider()) { _ in
-            LabContent(variant: variant)
-        }
-        .configurationDisplayName("Lab · " + variant.label)
-        .description("Prueba independiente de material y renderizado.")
-        .supportedFamilies([.systemSmall, .systemMedium])
-        .containerBackgroundRemovable(true)
-        .widgetTexture(.glass)
+private func labConfiguration(_ variant: LabVariant) -> some WidgetConfiguration {
+    StaticConfiguration(kind: variant.rawValue, provider: LabProvider()) { _ in
+        LabContent(variant: variant)
     }
+    .configurationDisplayName("Lab · " + variant.label)
+    .description("Prueba independiente de material y renderizado.")
+    .supportedFamilies([.systemSmall, .systemMedium])
+    .containerBackgroundRemovable(true)
+}
+
+private struct SystemLabWidget: Widget {
+    var body: some WidgetConfiguration { labConfiguration(.system) }
+}
+private struct ClearLabWidget: Widget {
+    var body: some WidgetConfiguration { labConfiguration(.clear) }
+}
+private struct BlurLabWidget: Widget {
+    var body: some WidgetConfiguration { labConfiguration(.blur) }
+}
+private struct GlassLabWidget: Widget {
+    var body: some WidgetConfiguration { labConfiguration(.glass) }
 }
 
 @main
 struct NativeMaterialLabWidgets: WidgetBundle {
     init() { CWLabInstall() }
     var body: some Widget {
-        LabWidget(variant: .system)
-        LabWidget(variant: .clear)
-        LabWidget(variant: .blur)
-        LabWidget(variant: .glass)
+        SystemLabWidget()
+        ClearLabWidget()
+        BlurLabWidget()
+        GlassLabWidget()
     }
 }

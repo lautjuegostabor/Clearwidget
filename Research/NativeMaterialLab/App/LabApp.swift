@@ -19,7 +19,7 @@ private struct LabView: View {
                     Text("Sistema: fondo normal.")
                     Text("Clear: descriptor transparente, estilo 1.")
                     Text("Blur: descriptor translúcido, estilo 2.")
-                    Text("Cristal del sistema: textura pública de WidgetKit. Depende del modo de inicio de iOS.")
+                    Text("Cristal del sistema: referencia de fondo transparente. Depende del modo de inicio de iOS; no fuerza el cristal.")
                 }
                 Section("Estado de WidgetKit") {
                     Button("Consultar widgets añadidos") {

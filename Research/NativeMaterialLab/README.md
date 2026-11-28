@@ -2,7 +2,7 @@
 
 Research-only project. Not a fix or replacement IPA for ClearWidget. No dependency on its original application, accounts, IPC, signing bridge, data caches or artwork.
 
-Four distinct widget kinds are registered. System is an unmodified descriptor control. Clear and Blur request historical native descriptor values 1 and 2, respectively, using only the lab's own widget descriptors. Glass is an unmodified descriptor with the public WidgetKit glass texture and transparent content. That texture is the public default, not an API to override the user's global appearance.
+Four distinct widget kinds are registered. System is an unmodified descriptor control. Clear and Blur request historical native descriptor values 1 and 2, respectively, using only the lab's own widget descriptors. Glass is an unmodified descriptor with transparent content, serving as a system-rendering reference. The Xcode 27.2 iPhone SDK explicitly rejects widgetTexture(.glass) as unavailable in iOS; it is not an iPhone API and was removed. The four Widget types have independent zero-argument initializers required by Widget.
 
 Acceptance criteria:
 - System and Glass must be compared with iOS Home Screen normal and clear appearance to confirm the baseline.
