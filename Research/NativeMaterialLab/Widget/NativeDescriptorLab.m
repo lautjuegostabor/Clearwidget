@@ -6,10 +6,14 @@
 #import <string.h>
 #import <stdlib.h>
 
-// Scope: only this lab extension and its two named descriptors.
+// Scope: only named Clear/Blur variants in this lab extension.
 // No IPC, no changes to other widgets, no access to the renderer process.
 NSInteger CWLabStyleForKind(NSString *kind) {
-    if ([kind isEqualToString:@"CWLabClear"]) return 1;
+    if ([kind isEqualToString:@"CWLabClear"] ||
+        [kind isEqualToString:@"CWLabClearTint08"] ||
+        [kind isEqualToString:@"CWLabClearTint16"] ||
+        [kind isEqualToString:@"CWLabLightBlur50"] ||
+        [kind isEqualToString:@"CWLabLightBlur85"]) return 1;
     if ([kind isEqualToString:@"CWLabBlur"]) return 2;
     return 0;
 }

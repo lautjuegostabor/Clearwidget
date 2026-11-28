@@ -19,8 +19,9 @@ private struct LabView: View {
                     Text("Sistema: fondo normal.")
                     Text("Clear: descriptor transparente, estilo 1.")
                     Text("Blur: descriptor translúcido, estilo 2.")
-                    Text("Cristal del sistema: referencia de fondo transparente.")
-                    Text("Host Glass S/M: estilo de fondo 2 sin alterar transparencia ni vibrancia. El cristal lo debe componer iOS; resultado aún no comprobado.")
+                    Text("Clear + 8% / + 16%: transparencia real con una capa blanca ligera.")
+                    Text("Blur suave 50% / 85%: Clear con Ultra Thin Material de SwiftUI al 50% o 85% de opacidad; no modifica el radio fijo de Blur del host. Comprueba su aspecto en inicio.")
+                    Text("Cristal del sistema y Material Apple S/M: referencias previas.")
                 }
                 Section("Estado de WidgetKit") {
                     Button("Consultar widgets añadidos") {
@@ -37,7 +38,7 @@ private struct LabView: View {
                     }
                     Text(result).font(.footnote)
                 }
-                Section("Diagnóstico de cristal · 0.1.3") {
+                Section("Diagnóstico de cristal · 0.1.5") {
                     Button("Inspeccionar ChronoServices") { inventory = CWLabRuntimeInventory() }
                     Text("Consulta firmas y objetos temporales de color. No cambia la apariencia ni envía parámetros a SpringBoard.").font(.caption)
                     if !inventory.isEmpty {

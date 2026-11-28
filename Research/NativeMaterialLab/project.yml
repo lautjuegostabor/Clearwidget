@@ -5,8 +5,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: '5.0'
-    MARKETING_VERSION: '0.1.4'
-    CURRENT_PROJECT_VERSION: '5'
+    MARKETING_VERSION: '0.1.5'
+    CURRENT_PROJECT_VERSION: '6'
     CODE_SIGNING_ALLOWED: 'NO'
 targets:
   NativeMaterialLab:
@@ -23,8 +23,8 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Material Lab
-        CFBundleShortVersionString: '0.1.4'
-        CFBundleVersion: '5'
+        CFBundleShortVersionString: '0.1.5'
+        CFBundleVersion: '6'
         UILaunchScreen: {}
     dependencies:
       - target: NativeMaterialLabExtension
@@ -47,8 +47,8 @@ targets:
       path: Widget/Info.plist
       properties:
         CFBundleDisplayName: Material Lab
-        CFBundleShortVersionString: '0.1.4'
-        CFBundleVersion: '5'
+        CFBundleShortVersionString: '0.1.5'
+        CFBundleVersion: '6'
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
 schemes:

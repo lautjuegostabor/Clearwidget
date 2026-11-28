@@ -6,6 +6,10 @@ private enum LabVariant: String {
     case clear = "CWLabClear"
     case blur = "CWLabBlur"
     case glass = "CWLabGlass"
+    case clear08 = "CWLabClearTint08"
+    case clear16 = "CWLabClearTint16"
+    case lightBlur50 = "CWLabLightBlur50"
+    case lightBlur85 = "CWLabLightBlur85"
     case hostGlassSmall = "CWLabNativeSDKSmall"
     case hostGlassMedium = "CWLabNativeSDKMedium"
 
@@ -15,6 +19,10 @@ private enum LabVariant: String {
         case .clear: return "Clear"
         case .blur: return "Blur"
         case .glass: return "Cristal del sistema"
+        case .clear08: return "Clear + 8%"
+        case .clear16: return "Clear + 16%"
+        case .lightBlur50: return "Blur suave 50%"
+        case .lightBlur85: return "Blur suave 85%"
         case .hostGlassSmall, .hostGlassMedium: return "Material de Apple"
         }
     }
@@ -53,9 +61,18 @@ private struct LabContent: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .containerBackground(for: .widget) {
-            if variant == .system {
+            switch variant {
+            case .system:
                 Color.gray.opacity(0.2)
-            } else {
+            case .clear08:
+                Color.white.opacity(0.08)
+            case .clear16:
+                Color.white.opacity(0.16)
+            case .lightBlur50:
+                Rectangle().fill(.ultraThinMaterial).opacity(0.50)
+            case .lightBlur85:
+                Rectangle().fill(.ultraThinMaterial).opacity(0.85)
+            default:
                 Color.clear
             }
         }
@@ -80,6 +97,18 @@ private struct ClearLabWidget: Widget {
 }
 private struct BlurLabWidget: Widget {
     var body: some WidgetConfiguration { labConfiguration(.blur) }
+}
+private struct Clear08LabWidget: Widget {
+    var body: some WidgetConfiguration { labConfiguration(.clear08) }
+}
+private struct Clear16LabWidget: Widget {
+    var body: some WidgetConfiguration { labConfiguration(.clear16) }
+}
+private struct LightBlur50LabWidget: Widget {
+    var body: some WidgetConfiguration { labConfiguration(.lightBlur50) }
+}
+private struct LightBlur85LabWidget: Widget {
+    var body: some WidgetConfiguration { labConfiguration(.lightBlur85) }
 }
 private struct GlassLabWidget: Widget {
     var body: some WidgetConfiguration { labConfiguration(.glass) }
@@ -108,6 +137,10 @@ struct NativeMaterialLabWidgets: WidgetBundle {
     var body: some Widget {
         SystemLabWidget()
         ClearLabWidget()
+        Clear08LabWidget()
+        Clear16LabWidget()
+        LightBlur50LabWidget()
+        LightBlur85LabWidget()
         BlurLabWidget()
         GlassLabWidget()
         HostGlassSmallLabWidget()

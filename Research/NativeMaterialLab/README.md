@@ -31,3 +31,6 @@ Source: https://github.com/flekstore/FlekDeck/blob/afa5061119cb858d76178b081c78d
 
 ## 0.1.4 — Apple WidgetKit configuration
 The two new fixed-family kinds use the exported WidgetKit preferredBackgroundStyle(.blur) modifier, as found in Apple widget binaries. The previous style-only encoder hook is removed. Existing Clear/Blur controls retain the scoped legacy hook. The build verifies the real iPhone SDK case symbols, native import and package identifiers. Simulator gallery registration was observed, but on-Home-Screen optical output was not verified: the prior UI test failed to match the Add Widget label with leading whitespace. This is a native-material candidate, not a proven independent Liquid Glass implementation. No wallpaper or synthetic glass background is used.
+
+## 0.1.5 — Compare lighter materials
+Four fixed variants on the previously working Clear descriptor: white tint 8%/16%, Ultra Thin Material opacity 50%/85%. Original Clear and host Blur remain unchanged. The opacity controls the SwiftUI material layer, not the host blur radius. Whether the material samples the real Home Screen behind the extension is unverified. No wallpaper capture or synthetic image.
