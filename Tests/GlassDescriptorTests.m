@@ -95,6 +95,25 @@ static void check(BOOL ok,NSString *message) {
     }return self;
 }
 @end
+// Alternate key verifies the compatibility fallback without changing the result class.
+@interface CWTestAlternateResult : CWTestResult @end
+@implementation CWTestAlternateResult
+- (void)encodeWithCoder:(NSCoder *)c {
+    [c encodeObject:self.widgetDescriptors forKey:@"alternateWidgets"];
+    [c encodeObject:self.activityDescriptors forKey:@"activityDescriptors"];
+    [c encodeObject:self.controlDescriptors forKey:@"controlDescriptors"];
+    [c encodeObject:self.futureField forKey:@"futureField"];
+}
+- (instancetype)initWithCoder:(NSCoder *)c {
+    if ((self=[super init])) {
+        self.widgetDescriptors=[c decodeObjectOfClasses:[NSSet setWithArray:@[NSArray.class,CWTestDescriptor.class,NSString.class]] forKey:@"alternateWidgets"];
+        self.activityDescriptors=[c decodeObjectOfClass:NSArray.class forKey:@"activityDescriptors"];
+        self.controlDescriptors=[c decodeObjectOfClasses:[NSSet setWithArray:@[NSArray.class,CWTestControl.class,NSString.class]] forKey:@"controlDescriptors"];
+        self.futureField=[c decodeObjectOfClass:NSString.class forKey:@"futureField"];
+    }
+    return self;
+}
+@end
 @interface CWTestServer : NSObject
 - (void)fetch:(void(^)(id))completion;
 - (void)bad:(id)object;
@@ -135,6 +154,14 @@ int main(void){@autoreleasepool{
     check(!((CWTestDescriptor*)changed.widgetDescriptors[1]).transparent,@"unrelated widget");
     check(!((CWTestDescriptor*)changed.controlDescriptors[0]).transparent,@"control unchanged");
     check([changed.futureField isEqualToString:original.futureField],@"unknown field preserved");
+    CWTestAlternateResult *alternate=[CWTestAlternateResult new];
+    alternate.widgetDescriptors=@[own,other];alternate.activityDescriptors=@[];alternate.controlDescriptors=@[control];
+    alternate.futureField=@"compatibility field";
+    CWTestAlternateResult *alt=CWTestPatchMode(alternate,CWTestAlternateResult.class,CWTestDescriptor.class,CWTestControl.class,2);
+    check(alt!=alternate && [alt class]==CWTestAlternateResult.class,@"alternate schema fallback");
+    check(((CWTestDescriptor *)alt.widgetDescriptors[0]).preferredBackgroundStyle==2,@"fallback styles own widget");
+    check(!((CWTestDescriptor *)alt.widgetDescriptors[1]).transparent,@"fallback leaves other widget unchanged");
+    check([alt.futureField isEqualToString:@"compatibility field"],@"fallback preserves additional fields");
     CWTestResult *noTarget=result(@[other],@[control]);
     check(patch(noTarget)==noTarget,@"no matching widget");
     CWTestResult *noCopy=result(@[own,descriptor(CWTestNoCopy.class,@"ClearWidget")],@[]);
