@@ -6,8 +6,8 @@ private enum LabVariant: String {
     case clear = "CWLabClear"
     case blur = "CWLabBlur"
     case glass = "CWLabGlass"
-    case hostGlassSmall = "CWLabHostGlassSmall"
-    case hostGlassMedium = "CWLabHostGlassMedium"
+    case hostGlassSmall = "CWLabNativeSDKSmall"
+    case hostGlassMedium = "CWLabNativeSDKMedium"
 
     var label: String {
         switch self {
@@ -15,7 +15,7 @@ private enum LabVariant: String {
         case .clear: return "Clear"
         case .blur: return "Blur"
         case .glass: return "Cristal del sistema"
-        case .hostGlassSmall, .hostGlassMedium: return "Glass nativo · candidato"
+        case .hostGlassSmall, .hostGlassMedium: return "Material de Apple"
         }
     }
 }
@@ -85,14 +85,15 @@ private struct GlassLabWidget: Widget {
     var body: some WidgetConfiguration { labConfiguration(.glass) }
 }
 
-// Unlike Clear and Blur, these kinds retain all normal descriptor flags.
+// Native WidgetKit configuration; neither kind enters the legacy descriptor patch.
 private func hostGlassConfiguration(_ variant: LabVariant, family: WidgetFamily) -> some WidgetConfiguration {
     StaticConfiguration(kind: variant.rawValue, provider: LabProvider()) { _ in
         LabContent(variant: variant)
     }
-    .configurationDisplayName(family == .systemSmall ? "Lab · Host Glass S" : "Lab · Host Glass M")
+    .configurationDisplayName(family == .systemSmall ? "Lab · Material Apple S" : "Lab · Material Apple M")
     .description("Solicita únicamente el material del sistema, sin filtros de SwiftUI.")
     .supportedFamilies([family])
+    .preferredBackgroundStyle(.blur)
 }
 private struct HostGlassSmallLabWidget: Widget {
     var body: some WidgetConfiguration { hostGlassConfiguration(.hostGlassSmall, family: .systemSmall) }

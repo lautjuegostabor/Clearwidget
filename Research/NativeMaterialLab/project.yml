@@ -5,8 +5,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: '5.0'
-    MARKETING_VERSION: '0.1.3'
-    CURRENT_PROJECT_VERSION: '4'
+    MARKETING_VERSION: '0.1.4'
+    CURRENT_PROJECT_VERSION: '5'
     CODE_SIGNING_ALLOWED: 'NO'
 targets:
   NativeMaterialLab:
@@ -23,8 +23,8 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Material Lab
-        CFBundleShortVersionString: '0.1.3'
-        CFBundleVersion: '4'
+        CFBundleShortVersionString: '0.1.4'
+        CFBundleVersion: '5'
         UILaunchScreen: {}
     dependencies:
       - target: NativeMaterialLabExtension
@@ -40,14 +40,15 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: Widget/NativeDescriptorLab.h
         CLANG_ENABLE_OBJC_ARC: 'YES'
         APPLICATION_EXTENSION_API_ONLY: 'YES'
+        SWIFT_INCLUDE_PATHS: '$(SRCROOT)/build-local-sdk'
         TARGETED_DEVICE_FAMILY: '1'
         SKIP_INSTALL: 'YES'
     info:
       path: Widget/Info.plist
       properties:
         CFBundleDisplayName: Material Lab
-        CFBundleShortVersionString: '0.1.3'
-        CFBundleVersion: '4'
+        CFBundleShortVersionString: '0.1.4'
+        CFBundleVersion: '5'
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
 schemes:

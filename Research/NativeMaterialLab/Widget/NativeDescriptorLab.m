@@ -69,76 +69,6 @@ static id CWStyledDescriptor(id descriptor, NSInteger style) {
     return copy;
 }
 
-// Independent, style-only path: encode a verified copy, leaving transparency,
-// vibrancy and removability exactly as supplied by WidgetKit. Never write ivars.
-BOOL CWLabIsHostGlassKind(NSString *kind) {
-    return [kind isEqualToString:@"CWLabHostGlassSmall"] || [kind isEqualToString:@"CWLabHostGlassMedium"];
-}
-static id CWHostGlassCopy(id original, Class descriptorClass) {
-    @try {
-        if (!original || !descriptorClass || ![original isKindOfClass:descriptorClass]) return nil;
-        id mutable=[original mutableCopy];
-        if (!mutable || mutable==original || ![mutable isKindOfClass:descriptorClass]) return nil;
-        if (!CWSetStyle(mutable,2)) return nil;
-        id frozen=[mutable copy];
-        if (!frozen || frozen==original || ![frozen isKindOfClass:descriptorClass]) return nil;
-        NSNumber *style=[frozen valueForKey:@"preferredBackgroundStyle"];
-        if (![style isKindOfClass:NSNumber.class] || style.integerValue!=2) return nil;
-        // Refuse the candidate if the setter or copying changed any other known flag.
-        for (NSString *key in @[@"transparent",@"backgroundRemovable",@"supportsVibrantContent"]) {
-            id a=[original valueForKey:key], b=[frozen valueForKey:key];
-            if (!a || !b || ![a isEqual:b]) return nil;
-        }
-        return frozen;
-    } @catch(NSException *e) { return nil; }
-}
-typedef void (*CWEncode)(id,SEL,NSCoder *);
-static CWEncode CWHostEncodeOriginal=NULL;
-static void CWHostEncode(id self,SEL selector,NSCoder *coder) {
-    CWEncode original=CWHostEncodeOriginal;
-    if (!original) return;
-    id target=self;
-    @try {
-        SEL kind=NSSelectorFromString(@"kind");
-        SEL extension=NSSelectorFromString(@"extensionBundleIdentifier");
-        Class cls=object_getClass(self);
-        if (CWMethod(class_getInstanceMethod(cls,kind),'@',2) &&
-            CWMethod(class_getInstanceMethod(cls,extension),'@',2)) {
-            id name=((id(*)(id,SEL))objc_msgSend)(self,kind);
-            id owner=((id(*)(id,SEL))objc_msgSend)(self,extension);
-            NSString *bundle=NSBundle.mainBundle.bundleIdentifier;
-            if ([name isKindOfClass:NSString.class] && CWLabIsHostGlassKind(name) &&
-                bundle.length && [owner isEqual:bundle]) {
-                id copy=CWHostGlassCopy(self,NSClassFromString(@"CHSWidgetDescriptor"));
-                if (copy) { target=copy; os_log_info(OS_LOG_DEFAULT,"CWLab: encoding own host-glass descriptor, style 2 only"); }
-                else os_log_error(OS_LOG_DEFAULT,"CWLab: host-glass copy rejected; retaining original");
-            }
-        }
-    } @catch(NSException *e) { target=self; }
-    // Exactly one invocation. Do not retry an encoder that has already written keys.
-    original(target,selector,coder);
-}
-static void CWInstallHostGlass(void) {
-    if (CWHostEncodeOriginal) return;
-    Class cls=NSClassFromString(@"CHSWidgetDescriptor");
-    if (!cls) return;
-    SEL sel=@selector(encodeWithCoder:);
-    unsigned n=0; Method *methods=class_copyMethodList(cls,&n); Method method=NULL;
-    for(unsigned i=0;i<n;i++) if(method_getName(methods[i])==sel){method=methods[i];break;}
-    free(methods);
-    if (!CWMethod(method,'v',3)) return;
-    char *arg=method_copyArgumentType(method,2);
-    BOOL valid=arg && !strcmp(arg,"@"); free(arg);
-    if (!valid) return;
-    IMP old=method_getImplementation(method);
-    if (!old || old==(IMP)CWHostEncode) return;
-    CWHostEncodeOriginal=(CWEncode)old;
-    method_setImplementation(method,(IMP)CWHostEncode);
-}
-#if defined(CW_LAB_TEST)
-id CWLabTestHostGlassCopy(id object, Class cls) { return CWHostGlassCopy(object,cls); }
-#endif
-
 @interface CWLabCoder : NSKeyedArchiver
 @property(nonatomic) BOOL encountered;
 @property(nonatomic) BOOL failed;
@@ -218,7 +148,6 @@ static void CWInstall(Class cls,SEL sel,IMP impl,CWFetch *original) {
 }
 static void CWAttempt(void) {
     @synchronized(NSObject.class) {
-        CWInstallHostGlass();
         Class cls=NSClassFromString(@"_TtCC9WidgetKit24WidgetExtensionXPCServer14ExportedObject");
         CWInstall(cls,NSSelectorFromString(@"getAllCurrentDescriptorsWithCompletion:"),(IMP)CWAll,&allOriginal);
         CWInstall(cls,NSSelectorFromString(@"getCurrentDescriptorsWithCompletion:"),(IMP)CWCurrent,&currentOriginal);

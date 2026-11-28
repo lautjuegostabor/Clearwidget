@@ -39,12 +39,13 @@ jobs:
       - name: Build independent project
         run: |
           brew install xcodegen
+          python3 prepare-native-sdk.py
           xcodegen generate
           python3 - <<'PY'
           import plistlib
           for path in ('App/Info.plist','Widget/Info.plist'):
               with open(path,'rb') as f: p=plistlib.load(f)
-              assert p.get('CFBundleShortVersionString')=='0.1.3' and p.get('CFBundleVersion')=='4', (path,p)
+              assert p.get('CFBundleShortVersionString')=='0.1.4' and p.get('CFBundleVersion')=='5', (path,p)
           PY
           xcodebuild -project NativeMaterialLab.xcodeproj -scheme NativeMaterialLab -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build ARCHS=arm64 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
       - name: Verify package
@@ -58,17 +59,21 @@ jobs:
               info=plistlib.loads((pathlib.Path(p)/'Info.plist').read_bytes())
               print(b, info.get('CFBundleShortVersionString'), info.get('CFBundleVersion'))
               assert info['CFBundleIdentifier']==b, (p, info.get('CFBundleIdentifier'))
-              assert info['CFBundleShortVersionString']=='0.1.3' and info['CFBundleVersion']=='4', (p, info.get('CFBundleShortVersionString'), info.get('CFBundleVersion'))
+              assert info['CFBundleShortVersionString']=='0.1.4' and info['CFBundleVersion']=='5', (p, info.get('CFBundleShortVersionString'), info.get('CFBundleVersion'))
           bin=(pathlib.Path(sys.argv[2])/'NativeMaterialLabExtension').read_bytes()
-          for kind in (b'CWLabSystem',b'CWLabClear',b'CWLabBlur',b'CWLabGlass',b'CWLabHostGlassSmall',b'CWLabHostGlassMedium'): assert kind in bin
-          assert b'encoding own host-glass descriptor' in bin, 'host encoder missing'
+          for kind in (b'CWLabSystem',b'CWLabClear',b'CWLabBlur',b'CWLabGlass',b'CWLabNativeSDKSmall',b'CWLabNativeSDKMedium'): assert kind in bin
+          assert b'encoding own host-glass descriptor' not in bin, 'obsolete host encoder present'
+          assert b'preferredBackgroundStyle' in bin, 'native WidgetKit modifier not linked'
           PY
+          xcrun nm -u "$ext/NativeMaterialLabExtension" | xcrun swift-demangle > native-imports.txt
+          grep -F 'WidgetConfiguration.preferredBackgroundStyle(WidgetKit.WidgetBackgroundStyle)' native-imports.txt
+          grep -F 'enum case for WidgetKit.WidgetBackgroundStyle.blur' native-imports.txt
           mkdir Payload
           cp -R "$app" Payload/
-          zip -qry NativeMaterialLab-0.1.3.ipa Payload
-          unzip -t NativeMaterialLab-0.1.3.ipa
+          zip -qry NativeMaterialLab-0.1.4.ipa Payload
+          unzip -t NativeMaterialLab-0.1.4.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: NativeMaterialLab-0.1.3
-          path: Research/NativeMaterialLab/NativeMaterialLab-0.1.3.ipa
+          name: NativeMaterialLab-0.1.4
+          path: Research/NativeMaterialLab/NativeMaterialLab-0.1.4.ipa
           if-no-files-found: error
