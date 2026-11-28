@@ -73,6 +73,36 @@ enum ShortcutBridge {
             } else if inserted != errSecSuccess { throw ShortcutBridgeError.denied(inserted) }
         } else if status != errSecSuccess { throw ShortcutBridgeError.denied(status) }
     }
+    // Appearance is a separate, cosmetic-only record, scoped to the effective
+    // installation. The existing shared group must actually be authorized.
+    private static func appearanceKey(_ suffix: String) throws -> String {
+        guard let host = AppearanceWire.hostBundleID(bundleURL: Bundle.main.bundleURL,
+                   bundleID: Bundle.main.bundleIdentifier ?? "") else {
+            throw ShortcutBridgeError.invalid
+        }
+        return "appearance.v2." + host + "." + suffix
+    }
+    static func appearanceRequest() throws -> AppearanceRecord? {
+        try get(AppearanceRecord.self, appearanceKey("request"))
+    }
+    static func sendAppearance(_ record: AppearanceRecord) throws {
+        try put(record, appearanceKey("request"))
+        guard try appearanceRequest() == record else { throw ShortcutBridgeError.invalid }
+    }
+    static func appearanceTimeline() throws -> AppearanceRecord? {
+        try get(AppearanceRecord.self, appearanceKey("timeline"))
+    }
+    static func acknowledgeAppearance(_ record: AppearanceRecord) throws {
+        try put(record, appearanceKey("timeline"))
+        guard try appearanceTimeline() == record else { throw ShortcutBridgeError.invalid }
+    }
+    static func appearanceDescriptor() throws -> AppearanceDescriptorReceipt? {
+        try get(AppearanceDescriptorReceipt.self, appearanceKey("descriptor"))
+    }
+    static func reportAppearance(_ receipt: AppearanceDescriptorReceipt) throws {
+        try put(receipt, appearanceKey("descriptor"))
+        guard try appearanceDescriptor() == receipt else { throw ShortcutBridgeError.invalid }
+    }
     static func beginProbe() throws {
         try put(Probe(id: UUID(), created: Date()), "probe")
     }

@@ -12,6 +12,7 @@ struct StayOnGlassSmall: AppIntent {
 struct GlassSmallView: View {
     let forecast: GlassForecast
     let shortcut: SystemShortcut?
+    var appearance: WidgetAppearance = .system
     private var currentText: String { GlassCondition.description(forecast.current.code) }
     private var wrappedText: String {
         switch currentText {
@@ -40,7 +41,7 @@ struct GlassSmallView: View {
             .accessibilityHint(shortcut == nil ? "Sin acción configurada" : "Abrir atajo configurado")
         }
         .foregroundStyle(.white)
-        .containerBackground(for: .widget) { Color.black.opacity(0.12) }
+        .containerBackground(for: .widget) { appearance == .system ? Color.black.opacity(0.12) : Color.clear }
     }
 
     private func artwork(s: CGFloat) -> some View {

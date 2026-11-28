@@ -17,6 +17,20 @@ import Foundation
         check(.resolve(request:system,timeline:nil,descriptor:.init(record:system,outcome:.system)),.system)
         check(.resolve(request:a,timeline:nil,descriptor:.init(record:a,outcome:.system)),.rejected)
         check(.resolve(request:system,timeline:nil,descriptor:.init(record:system,outcome:.patched)),.rejected)
+        check(.resolveAcross(request:b, observations:[
+            .init(request:a,timeline:a,descriptor:.init(record:a,outcome:.patched)),
+            .init(request:b,timeline:b,descriptor:nil)
+        ]),.timelineReceived)
+        check(.resolveAcross(request:b, observations:[
+            .init(request:b,timeline:b,descriptor:nil),
+            .init(request:b,timeline:nil,descriptor:.init(record:b,outcome:.patched))
+        ]),.patched)
+        check(.resolveAcross(request:b, observations:[
+            .init(request:a,timeline:b,descriptor:.init(record:b,outcome:.patched))
+        ]),.pending)
+        check(.resolveAcross(request:system, observations:[
+            .init(request:system,timeline:system,descriptor:.init(record:system,outcome:.system))
+        ]),.system)
         precondition(a.revision != b.revision)
         let decoded = try! JSONDecoder().decode(AppearanceRecord.self, from:JSONEncoder().encode(b))
         precondition(decoded == b && decoded.revision == b.revision)

@@ -21,39 +21,8 @@ static BOOL CWCheckMethod(Method m, unsigned count, BOOL objectReturn) {
     free(a);free(b);
     return ok;
 }
-static NSString *CWDescribeOwn(id result, NSInteger expectedStyle, NSString *identifier) {
-    @try {
-        id collection=result;
-        Class box=NSClassFromString(@"CHSWidgetDescriptorsBox");
-        if (box && [result isKindOfClass:box]) collection=[result valueForKey:@"descriptors"];
-        if ([collection isKindOfClass:NSDictionary.class]) collection=[collection allValues];
-        if (![collection isKindOfClass:NSArray.class] && ![collection isKindOfClass:NSSet.class])
-            return @"Respuesta recibida; formato del descriptor no reconocido.";
-        Class desc=NSClassFromString(@"CHSWidgetDescriptor");
-        Class control=NSClassFromString(@"CHSControlDescriptor");
-        NSUInteger matches=0, correct=0;
-        NSMutableSet<NSNumber *> *styles=[NSMutableSet set];
-        for (id item in collection) {
-            if (!desc || ![item isKindOfClass:desc] || (control && [item isKindOfClass:control])) continue;
-            if (![[item valueForKey:@"kind"] isEqual:@"ClearWidget"]) continue;
-            NSString *owner=[item valueForKey:@"containerBundleIdentifier"];
-            if (![owner isKindOfClass:NSString.class] || ![owner isEqualToString:identifier]) continue;
-            NSNumber *style=[item valueForKey:@"preferredBackgroundStyle"];
-            if (![style isKindOfClass:NSNumber.class]) continue;
-            matches++; [styles addObject:style];
-            if (style.integerValue==expectedStyle) correct++;
-        }
-        if (!matches) return @"iOS respondió; no se identificó el descriptor propio.";
-        NSMutableArray<NSString *> *strings=[NSMutableArray array];
-        for (NSNumber *style in [[styles allObjects] sortedArrayUsingSelector:@selector(compare:)]) [strings addObject:style.stringValue];
-        NSString *values=[strings componentsJoinedByString:@", "];
-        if (expectedStyle<0) return [NSString stringWithFormat:@"Descriptor leído: estilo %@. Sistema no impone un valor.",values];
-        return [NSString stringWithFormat:@"Descriptor leído: estilo %@; esperado %ld. %@ No confirma el material visual.", values,(long)expectedStyle,correct==matches?@"Coincide.":@"No coincide."];
-    } @catch (NSException *exception) {
-        return [NSString stringWithFormat:@"No se pudo interpretar el descriptor: %@.",exception.name];
-    }
-}
 void CWReloadOwnDescriptors(NSInteger expectedStyle, void (^completion)(NSString *)) {
+    (void)expectedStyle; // Only a correlated extension receipt can establish style.
     NSObject *gate=[NSObject new];
     __block BOOL finished=NO;
     void (^finish)(NSString *)=^(NSString *message) {
@@ -79,26 +48,15 @@ void CWReloadOwnDescriptors(NSInteger expectedStyle, void (^completion)(NSString
         if (!cls || !CWCheckMethod(class_getClassMethod(cls,shared),2,YES)) { finish(@"ChronoServices no disponible."); return; }
         id connection=((id(*)(id,SEL))objc_msgSend)(cls,shared);
         SEL reload=NSSelectorFromString(@"reloadDescriptorsForContainerBundleIdentifier:completion:");
-        SEL fetch=NSSelectorFromString(@"fetchDescriptorsForContainerBundleIdentifier:completion:");
         Class connectionClass=object_getClass(connection);
-        if (!connection || !CWCheckMethod(class_getInstanceMethod(connectionClass,reload),4,NO) ||
-            !CWCheckMethod(class_getInstanceMethod(connectionClass,fetch),4,NO)) {
+        if (!connection || !CWCheckMethod(class_getInstanceMethod(connectionClass,reload),4,NO)) {
             finish(@"Firma de API privada no reconocida; no se invocó."); return;
         }
-        // Observed ChronoServices error callback passes two register arguments.
-        // The first reload result is not interpreted; the independent fetch is
-        // the actual readback. The exact iOS 27 callback ABI is a device test.
-        void (^reloaded)(__unsafe_unretained id,NSError *)=^(__unsafe_unretained id unused,NSError *error) {
-            (void)unused;
-            @synchronized(gate) { if (finished) return; }
-            if (error) { finish([NSString stringWithFormat:@"Recarga rechazada: %@ (%ld).",error.domain,(long)error.code]); return; }
-            @try {
-                void (^fetched)(id,NSError *)=^(id result,NSError *fetchError) {
-                    if (fetchError) { finish([NSString stringWithFormat:@"Recarga respondió; lectura rechazada: %@ (%ld).",fetchError.domain,(long)fetchError.code]); return; }
-                    finish(CWDescribeOwn(result,expectedStyle,identifier));
-                };
-                ((void(*)(id,SEL,id,id))objc_msgSend)(connection,fetch,identifier,[fetched copy]);
-            } @catch (NSException *exception) { finish([NSString stringWithFormat:@"Lectura no disponible: %@.",exception.name]); }
+        // Independently traced ARM64 caller declares v8@?0 (void (^)(void)).
+        // Do not invent an NSError or a success result from extra registers.
+        // No speculative fetch ABI; the extension's receipt is independent.
+        void (^reloaded)(void)=^{
+            finish(@"ChronoServices devolvió el callback. Aceptación y estilo aún no confirmados.");
         };
         ((void(*)(id,SEL,id,id))objc_msgSend)(connection,reload,identifier,[reloaded copy]);
     } @catch (NSException *exception) { finish([NSString stringWithFormat:@"Recarga no disponible: %@.",exception.name]); }

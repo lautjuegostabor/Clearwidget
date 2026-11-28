@@ -177,7 +177,9 @@ private struct Provider: AppIntentTimelineProvider {
         let now = Date()
         let mark = context.isPreview ? nil : WidgetInteraction.current(at: now)
         let tap = mark != nil
-        if !context.isPreview && !tap {
+        let appearancePending = !context.isPreview && AppearancePreference.needsTimeline(AppearancePreference.currentRecord())
+        // An appearance-only refresh must not wait for meteorology or battery I/O.
+        if !context.isPreview && !tap && !appearancePending {
             await WeatherService.shared.refreshIfDue(at: now)
         }
         // Read the latest state after any scheduled network request, never restore an old page.
@@ -190,7 +192,7 @@ private struct Provider: AppIntentTimelineProvider {
         let next = context.family == .systemSmall ? min(refresh, nextHour) : min(midnight, refresh)
         var battery: Int?
         if context.family == .systemSmall && configuration.design == .animated && !context.isPreview {
-            if tap { battery = BatteryReader.cached(at: date) }
+            if tap || appearancePending { battery = BatteryReader.cached(at: date) }
             else { battery = await BatteryReader.level() }
         }
         let currentEntry = entry(at: date, configuration: configuration, family: context.family, cache: cache, battery: battery)
@@ -249,7 +251,7 @@ private struct ClearView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .foregroundStyle(.white)
-        .containerBackground(for: .widget) { Color.black.opacity(0.12) }
+        .containerBackground(for: .widget) { entry.appearance == .system ? Color.black.opacity(0.12) : Color.clear }
     }
 
     @ViewBuilder private func panel(s: CGFloat) -> some View {
@@ -491,7 +493,7 @@ private struct FamilyRoot: View {
         if family == .systemSmall {
             switch entry.configuration.design {
             case .glass:
-                GlassSmallView(forecast: entry.glass, shortcut: entry.configuration.home)
+                GlassSmallView(forecast: entry.glass, shortcut: entry.configuration.home, appearance: entry.appearance)
             case .clear:
                 ClearSmallView(date: entry.date, forecast: entry.glass, shortcut: entry.configuration.home)
             case .animated:

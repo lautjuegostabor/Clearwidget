@@ -5,7 +5,8 @@ struct WidgetAppearancePanel: View {
     @State private var selected = AppearancePreference.current()
     @State private var status = "Sistema es el valor inicial."
     @State private var observation: Task<Void, Never>?
-    @State private var descriptorStatus = "Sin lectura de ChronoServices."
+    @State private var descriptorStatus = "Sin solicitud a ChronoServices."
+    @State private var transportStatus = ""
     @State private var reloadID = UUID()
     @Environment(\.scenePhase) private var phase
     var body: some View {
@@ -33,8 +34,9 @@ struct WidgetAppearancePanel: View {
             }
             Text(status).font(.footnote).accessibilityIdentifier("appearance.status")
             Text(descriptorStatus).font(.footnote).accessibilityIdentifier("appearance.readback")
-            Button("Comprobar estado") { restoreAndRefresh(forceReadback: true) }
-            Text("Liquid Glass prueba el material nativo de SwiftUI, sin fondo de pantalla. La lectura del descriptor no demuestra refracción óptica.")
+            if !transportStatus.isEmpty { Text(transportStatus).font(.caption).foregroundStyle(.secondary) }
+            Button("Comprobar estado") { _ = refreshStatus() }
+            Text("Liquid Glass prueba el material nativo de SwiftUI, sin fondo de pantalla. La confirmación del descriptor no demuestra refracción óptica.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .onAppear { selected = AppearancePreference.current(); restoreAndRefresh() }
@@ -44,7 +46,7 @@ struct WidgetAppearancePanel: View {
         }
         .onDisappear { observation?.cancel(); observation = nil }
     }
-    @MainActor private func restoreAndRefresh(forceReadback: Bool = false) {
+    @MainActor private func restoreAndRefresh() {
         do {
             selected = AppearancePreference.current()
             let restored = try AppearancePreference.restoreRequest()
@@ -52,9 +54,9 @@ struct WidgetAppearancePanel: View {
                 WidgetCenter.shared.invalidateConfigurationRecommendations()
                 WidgetCenter.shared.reloadTimelines(ofKind:"ClearWidget")
             }
-            if restored || forceReadback { requestDescriptorReload() }
+            if restored { requestDescriptorReload() }
             refreshStatus()
-        } catch { status = "No se pudo enviar la selección: \(error.localizedDescription)" }
+        } catch { status = "No se pudo enviar la selección: \(error.localizedDescription)"; transportStatus = AppearancePreference.transportStatus() }
     }
     @MainActor private func apply(_ mode: WidgetAppearance) {
         observation?.cancel()
@@ -78,13 +80,14 @@ struct WidgetAppearancePanel: View {
             }
         } catch {
             status = "Selección local: \(mode.label). No se pudo enviar al widget: \(error.localizedDescription)"
+            transportStatus = AppearancePreference.transportStatus()
         }
     }
     @MainActor private func requestDescriptorReload() {
         let id = UUID()
         reloadID = id
         let mode = selected
-        descriptorStatus = "Solicitando recarga y lectura del descriptor…"
+        descriptorStatus = "Solicitando recarga del descriptor…"
         let expected = mode == .system ? -1 : (mode == .blur ? 2 : 1)
         CWReloadOwnDescriptors(expected) { message in
             Task { @MainActor in
@@ -95,6 +98,7 @@ struct WidgetAppearancePanel: View {
         }
     }
     @MainActor @discardableResult private func refreshStatus() -> Bool {
+        transportStatus = AppearancePreference.transportStatus()
         do {
             switch try AppearancePreference.delivery() {
             case .initial: status = "Sistema es el valor inicial."
