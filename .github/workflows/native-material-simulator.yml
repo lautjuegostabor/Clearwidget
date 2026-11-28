@@ -96,7 +96,7 @@ jobs:
 
           @main
           struct NativeMaterialLabWidgets''')
-          replace('        HostGlassMediumLabWidget()','        HostGlassMediumLabWidget()\n        SDKGlassLabWidget()')
+          replace('        SystemLabWidget()','        SDKGlassLabWidget()\n        SystemLabWidget()')
           p.write_text(s)
           p=Path('project.yml')
           s=p.read_text()
@@ -159,24 +159,35 @@ jobs:
                   else if plus.exists && plus.isHittable { plus.tap() }
                   else { XCTFail("No accessible Add Widget control"); return }
                   record("widget-gallery", home)
-                  let search = home.searchFields.firstMatch
-                  if search.waitForExistence(timeout: 5) { search.tap(); search.typeText("Material Lab") }
-                  let lab = item("Material Lab", in: home)
-                  guard lab.waitForExistence(timeout: 10) && lab.isHittable else { XCTFail("Lab not found in Home Screen gallery"); return }
+                  // Previous evidence showed the actual cell was already visible, while
+                  // a same-named Home Screen icon and a first-use keyboard obscured it.
+                  let lab = home.cells.matching(NSPredicate(format: "label ==[c] %@", "Material Lab")).firstMatch
+                  for _ in 0..<8 {
+                      if lab.exists && lab.isHittable { break }
+                      home.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.76))
+                          .press(forDuration: 0.05, thenDragTo: home.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)))
+                  }
+                  guard lab.waitForExistence(timeout: 5) && lab.isHittable else { record("lab-cell-missing", home); XCTFail("Material Lab gallery cell not reachable"); return }
                   lab.tap()
-                  let candidate = item("Lab · SDK Glass", in: home)
-                  for _ in 0..<10 {
-                      if candidate.exists && candidate.isHittable { break }
-                      home.swipeLeft()
+                  record("lab-detail-initial", home)
+                  // Only inspect gallery controls; an accessibility label may include kind,
+                  // family, description and contents rather than equal the title.
+                  let candidate = home.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "SDK Glass")).firstMatch
+                  let preview = home.descendants(matching: .any).matching(NSPredicate(format: "identifier CONTAINS[c] %@", "CWLabSDKGlass")).firstMatch
+                  for i in 0..<18 {
+                      if (candidate.exists && candidate.isHittable) || (preview.exists && preview.isHittable) { break }
+                      record("gallery-page-\(i)", home)
+                      home.coordinate(withNormalizedOffset: CGVector(dx: 0.81, dy: 0.47))
+                          .press(forDuration: 0.05, thenDragTo: home.coordinate(withNormalizedOffset: CGVector(dx: 0.19, dy: 0.47)))
                   }
                   record("candidate-gallery", home)
-                  guard candidate.exists && candidate.isHittable else { XCTFail("SDK Glass kind not reachable"); return }
-                  let addWidget = item("Add Widget", in: home)
+                  guard (candidate.exists && candidate.isHittable) || (preview.exists && preview.isHittable) else { XCTFail("SDK Glass kind not reachable"); return }
+                  let addWidget = home.buttons.matching(NSPredicate(format: "label ==[c] %@", "Add Widget")).firstMatch
                   guard addWidget.waitForExistence(timeout: 5) && addWidget.isHittable else { XCTFail("Candidate has no add control"); return }
                   addWidget.tap()
                   let done = item("Done", in: home)
                   if done.waitForExistence(timeout: 5) && done.isHittable { done.tap() }
-                  let installed = item("SDK Glass", in: home)
+                  let installed = home.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", "SDK Glass")).firstMatch
                   XCTAssertTrue(installed.waitForExistence(timeout: 15), "Candidate not confirmed on Home Screen")
                   record("sdk-glass-on-home", home)
               }
