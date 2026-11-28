@@ -45,7 +45,7 @@ jobs:
           import plistlib
           for path in ('App/Info.plist','Widget/Info.plist'):
               with open(path,'rb') as f: p=plistlib.load(f)
-              assert p.get('CFBundleShortVersionString')=='0.1.6' and p.get('CFBundleVersion')=='7', (path,p)
+              assert p.get('CFBundleShortVersionString')=='0.1.7' and p.get('CFBundleVersion')=='8', (path,p)
           PY
           xcodebuild -project NativeMaterialLab.xcodeproj -scheme NativeMaterialLab -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build ARCHS=arm64 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
       - name: Verify package
@@ -59,9 +59,9 @@ jobs:
               info=plistlib.loads((pathlib.Path(p)/'Info.plist').read_bytes())
               print(b, info.get('CFBundleShortVersionString'), info.get('CFBundleVersion'))
               assert info['CFBundleIdentifier']==b, (p, info.get('CFBundleIdentifier'))
-              assert info['CFBundleShortVersionString']=='0.1.6' and info['CFBundleVersion']=='7', (p, info.get('CFBundleShortVersionString'), info.get('CFBundleVersion'))
+              assert info['CFBundleShortVersionString']=='0.1.7' and info['CFBundleVersion']=='8', (p, info.get('CFBundleShortVersionString'), info.get('CFBundleVersion'))
           bin=(pathlib.Path(sys.argv[2])/'NativeMaterialLabExtension').read_bytes()
-          for kind in (b'CWLabExactGlass',b'CWLabSystem',b'CWLabClear',b'CWLabBlur',b'CWLabGlass',b'CWLabNativeSDKSmall',b'CWLabNativeSDKMedium',b'CWLabClearTint08',b'CWLabClearTint16',b'CWLabLightBlur50',b'CWLabLightBlur85'): assert kind in bin
+          for kind in (b'CWLabExactGlass',b'CWLabExactGlassLight6',b'CWLabExactGlassLight12',b'CWLabExactGlassLight20',b'CWLabExactGlassLight30',b'CWLabSystem',b'CWLabClear',b'CWLabBlur',b'CWLabNativeSDKSmall',b'CWLabNativeSDKMedium'): assert kind in bin
           assert b'encoding own host-glass descriptor' not in bin, 'obsolete host encoder present'
           assert b'CWExact: original descriptor' in bin, 'exact encoder missing'
           assert b'preferredBackgroundStyle' in bin, 'native WidgetKit modifier not linked'
@@ -69,7 +69,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           s=Path('Widget/LabWidget.swift').read_text()
-          for expected in ('Color.white.opacity(0.08)','Color.white.opacity(0.16)','Rectangle().fill(.ultraThinMaterial).opacity(0.50)','Rectangle().fill(.ultraThinMaterial).opacity(0.85)'):
+          for expected in ('Color.white.opacity(variant.lightening)','case .exactLight6: return 0.06','case .exactLight12: return 0.12','case .exactLight20: return 0.20','case .exactLight30: return 0.30'):
               assert expected in s, expected
           PY
           xcrun nm -u "$ext/NativeMaterialLabExtension" | xcrun swift-demangle > native-imports.txt
@@ -77,10 +77,10 @@ jobs:
           grep -F 'enum case for WidgetKit.WidgetBackgroundStyle.blur' native-imports.txt
           mkdir Payload
           cp -R "$app" Payload/
-          zip -qry NativeMaterialLab-0.1.6.ipa Payload
-          unzip -t NativeMaterialLab-0.1.6.ipa
+          zip -qry NativeMaterialLab-0.1.7.ipa Payload
+          unzip -t NativeMaterialLab-0.1.7.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: NativeMaterialLab-0.1.6
-          path: Research/NativeMaterialLab/NativeMaterialLab-0.1.6.ipa
+          name: NativeMaterialLab-0.1.7
+          path: Research/NativeMaterialLab/NativeMaterialLab-0.1.7.ipa
           if-no-files-found: error

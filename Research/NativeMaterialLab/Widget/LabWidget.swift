@@ -4,6 +4,10 @@ import WidgetKit
 
 private enum LabVariant: String {
     case exact = "CWLabExactGlass"
+    case exactLight6 = "CWLabExactGlassLight6"
+    case exactLight12 = "CWLabExactGlassLight12"
+    case exactLight20 = "CWLabExactGlassLight20"
+    case exactLight30 = "CWLabExactGlassLight30"
     case system = "CWLabSystem"
     case clear = "CWLabClear"
     case blur = "CWLabBlur"
@@ -15,9 +19,23 @@ private enum LabVariant: String {
     case hostGlassSmall = "CWLabNativeSDKSmall"
     case hostGlassMedium = "CWLabNativeSDKMedium"
 
+    var lightening: Double {
+        switch self {
+        case .exactLight6: return 0.06
+        case .exactLight12: return 0.12
+        case .exactLight20: return 0.20
+        case .exactLight30: return 0.30
+        default: return 0
+        }
+    }
+
     var label: String {
         switch self {
         case .exact: return "Cristal original"
+        case .exactLight6: return "Cristal +6%"
+        case .exactLight12: return "Cristal +12%"
+        case .exactLight20: return "Cristal +20%"
+        case .exactLight30: return "Cristal +30%"
         case .system: return "Sistema"
         case .clear: return "Clear"
         case .blur: return "Blur"
@@ -63,6 +81,14 @@ private struct LabContent: View {
             Text(showsBackground ? "Fondo visible" : "Fondo oculto").font(.caption2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background {
+            // Keep host-rendered Solarium; compensate luminance in the foreground
+            // so WidgetKit cannot discard it as a removable container background.
+            if variant.lightening > 0 {
+                Color.white.opacity(variant.lightening)
+                    .allowsHitTesting(false)
+            }
+        }
         .containerBackground(for: .widget) {
             switch variant {
             case .system:
@@ -145,12 +171,13 @@ private struct ExactMaterialProvider: AppIntentTimelineProvider {
     }
 }
 private struct ExactGlassLabWidget: Widget {
+    let variant: LabVariant
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: LabVariant.exact.rawValue, intent: ExactMaterialIntent.self, provider: ExactMaterialProvider()) { _ in
-            LabContent(variant: .exact)
+        AppIntentConfiguration(kind: variant.rawValue, intent: ExactMaterialIntent.self, provider: ExactMaterialProvider()) { _ in
+            LabContent(variant: variant)
         }
-        .configurationDisplayName("Lab · Cristal original")
-        .description("Descriptor original, material del sistema, sin capas añadidas.")
+        .configurationDisplayName("Lab · " + variant.label)
+        .description("Cristal nativo con compensación de luminosidad opcional.")
         .supportedFamilies([.systemSmall])
         .contentMarginsDisabled()
     }
@@ -159,15 +186,14 @@ private struct ExactGlassLabWidget: Widget {
 struct NativeMaterialLabWidgets: WidgetBundle {
     init() { CWLabInstall() }
     var body: some Widget {
-        ExactGlassLabWidget()
+        ExactGlassLabWidget(variant: .exact)
+        ExactGlassLabWidget(variant: .exactLight6)
+        ExactGlassLabWidget(variant: .exactLight12)
+        ExactGlassLabWidget(variant: .exactLight20)
+        ExactGlassLabWidget(variant: .exactLight30)
         SystemLabWidget()
         ClearLabWidget()
-        Clear08LabWidget()
-        Clear16LabWidget()
-        LightBlur50LabWidget()
-        LightBlur85LabWidget()
         BlurLabWidget()
-        GlassLabWidget()
         HostGlassSmallLabWidget()
         HostGlassMediumLabWidget()
     }

@@ -16,6 +16,10 @@ int main(void) {
         for(NSString *kind in @[@"CWLabSystem",@"CWLabClear",@"CWLabBlur",@"CWLabGlass",@"Other"]) {
             NSCAssert(!CWLabUsesExactStyleForKind(kind),@"original encoder must not modify controls");
         }
+        for(NSString *kind in @[@"CWLabExactGlassLight6",@"CWLabExactGlassLight12",@"CWLabExactGlassLight20",@"CWLabExactGlassLight30"]) {
+            NSCAssert(CWLabUsesExactStyleForKind(kind),@"same exact native glass descriptor");
+            NSCAssert(CWLabStyleForKind(kind)==0,@"no legacy Clear or Blur path");
+        }
         NSCAssert(!CWLabUsesExactStyleForKind(nil),@"nil ignored");
         NSLog(@"Scope tests passed; exact variant isolated.");
     }

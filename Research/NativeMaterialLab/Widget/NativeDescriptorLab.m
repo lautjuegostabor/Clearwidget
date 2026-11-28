@@ -18,7 +18,11 @@ NSInteger CWLabStyleForKind(NSString *kind) {
     return 0;
 }
 BOOL CWLabUsesExactStyleForKind(NSString *kind) {
-    return [kind isEqualToString:@"CWLabExactGlass"];
+    return [kind isEqualToString:@"CWLabExactGlass"] ||
+        [kind isEqualToString:@"CWLabExactGlassLight6"] ||
+        [kind isEqualToString:@"CWLabExactGlassLight12"] ||
+        [kind isEqualToString:@"CWLabExactGlassLight20"] ||
+        [kind isEqualToString:@"CWLabExactGlassLight30"];
 }
 static BOOL CWMethod(Method method, char result, unsigned n) {
     if (!method || method_getNumberOfArguments(method) != n) return NO;
