@@ -1,0 +1,72 @@
+name: Native Material SDK Evidence
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/native-material-lab]
+    paths:
+      - '.github/workflows/native-material-sdk-evidence.yml'
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: xcode-27
+    timeout-minutes: 8
+    steps:
+      - name: Inspect installed iPhone SDK and simulator runtime (no app build)
+        run: |
+          python3 - <<'PY'
+          import glob, os, re, subprocess, pathlib
+          choices=[]
+          for app in glob.glob('/Applications/Xcode*.app'):
+              p=app+'/Contents/Developer'
+              out=subprocess.run(['xcodebuild','-version'],env=dict(os.environ,DEVELOPER_DIR=p),capture_output=True,text=True).stdout
+              m=re.search(r'Xcode (\d+(?:\.\d+)*)',out)
+              if m and int(m[1].split('.')[0])>=27: choices.append((tuple(map(int,m[1].split('.'))),p))
+          assert choices, 'Xcode 27 required'
+          env=dict(os.environ,DEVELOPER_DIR=max(choices)[1])
+          def run(args):
+              p=subprocess.run(args,env=env,capture_output=True,text=True)
+              return p.stdout.strip()
+          print(run(['xcodebuild','-version']))
+          pattern=re.compile(r'preferredBackgroundStyle|WidgetBackgroundStyle|widgetTexture|WidgetTexture|containerBackgroundRemovable|widgetAccentedRenderingMode|_preferredSystemWidgetBackgroundStyle')
+          for name in ['iphoneos','iphonesimulator']:
+              sdk=run(['xcrun','--sdk',name,'--show-sdk-path'])
+              if not sdk: continue
+              print('\nSDK',name, sdk)
+              framework=pathlib.Path(sdk)/'System/Library/Frameworks/WidgetKit.framework'
+              for p in sorted(framework.glob('Modules/WidgetKit.swiftmodule/*swiftinterface')):
+                  if not ('arm64' in p.name): continue
+                  print('INTERFACE',p.name)
+                  lines=p.read_text(errors='replace').splitlines()
+                  seen=set()
+                  for i,line in enumerate(lines):
+                      if pattern.search(line):
+                          for k in range(max(0,i-2),min(len(lines),i+8)):
+                              if k not in seen:
+                                  print(f'{k+1}: {lines[k][:600]}');seen.add(k)
+                  if not seen: print('No target declarations')
+              p=framework/'WidgetKit.tbd'
+              if p.exists():
+                  print('EXPORTED SYMBOLS',p)
+                  symbols=re.findall(r'[_$][A-Za-z0-9_$]+',p.read_text(errors='replace'))
+                  for symbol in sorted(set(s for s in symbols if pattern.search(s))):
+                      demangled=run(['xcrun','swift-demangle',symbol])
+                      print(symbol,'=>',demangled)
+              else: print('WidgetKit.tbd absent')
+          print('\nSIM RUNTIMES')
+          print(run(['xcrun','simctl','list','runtimes']))
+          print('\nSIM DEVICES')
+          print(run(['xcrun','simctl','list','devices','available']))
+          paths=glob.glob('/Library/Developer/CoreSimulator/Volumes/**/iOS*.simruntime/Contents/Resources/RuntimeRoot',recursive=True)
+          paths+=glob.glob('/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS*.simruntime/Contents/Resources/RuntimeRoot')
+          print('RUNTIME ROOTS',paths)
+          for root in sorted(set(paths)):
+              for name in ['ChronoServices','ChronoKit','ChronoUIServices','WidgetRenderer','SpringBoardHome']:
+                  p=pathlib.Path(root)/f'System/Library/PrivateFrameworks/{name}.framework/{name}'
+                  if p.is_file():
+                      print(name,'exists',p.stat().st_size)
+                      result=run(['strings','-a',str(p)])
+                      matches=[s for s in result.splitlines() if len(s)<240 and re.search(r'preferredBackgroundStyle|wantsMaterialBackgroundForFamily|usesSystemBackgroundMaterial|wantsGlassMaterial|_generateTintParametersForWidgetDescriptor|sbh_applyWidgetGlass|widgetTexture|WidgetBackgroundStyle|drawSystemBackgroundMaterialIfNecessary',s)]
+                      print('\n'.join(sorted(set(matches))[:40]))
+                  else: print(name,'not individually present')
+          PY

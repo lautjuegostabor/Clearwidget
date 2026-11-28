@@ -3,6 +3,9 @@ on:
   workflow_dispatch:
   push:
     branches: [research/native-material-lab]
+    paths:
+      - 'Research/NativeMaterialLab/**'
+      - '.github/workflows/native-material-lab.yml'
 permissions:
   contents: read
 jobs:
