@@ -1,5 +1,6 @@
 import SwiftUI
 import WidgetKit
+import UIKit
 
 @main
 struct MaterialLabApp: App {
@@ -10,6 +11,7 @@ struct MaterialLabApp: App {
 
 private struct LabView: View {
     @State private var result = "Sin consultar"
+    @State private var inventory = ""
     var body: some View {
         NavigationStack {
             List {
@@ -33,6 +35,13 @@ private struct LabView: View {
                         }
                     }
                     Text(result).font(.footnote)
+                }
+                Section("API del sistema (solo lectura)") {
+                    Button("Inspeccionar ChronoServices") { inventory = CWLabRuntimeInventory() }
+                    if !inventory.isEmpty {
+                        Button("Copiar informe") { UIPasteboard.general.string = inventory }
+                        Text(inventory).font(.caption2.monospaced()).textSelection(.enabled)
+                    }
                 }
                 Section("Alcance") {
                     Text("Proyecto de investigación independiente. No cambia el aspecto de ClearWidget. No usa capturas del fondo, IPC ni cuentas Apple.")

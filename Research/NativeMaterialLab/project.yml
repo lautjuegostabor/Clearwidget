@@ -16,6 +16,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.clearwidget.materiallab
+        SWIFT_OBJC_BRIDGING_HEADER: App/RuntimeInventory.h
+        CLANG_ENABLE_OBJC_ARC: 'YES'
         TARGETED_DEVICE_FAMILY: '1'
     info:
       path: App/Info.plist
