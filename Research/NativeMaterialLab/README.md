@@ -19,3 +19,6 @@ References:
 - https://developer.limneos.net/?framework=ChronoServices.framework&ios=27.0 (index lists glass options; individual headers blocked by verification at time of research)
 
 No private glass enum value is asserted. The private adapter is optional, guarded, and does not edit other processes or signing permissions. CI checks only compilation and identifier scope, not iPhone rendering. No account or device changes are initiated.
+
+## 0.1.1 — device evidence and local tint investigation
+On iOS 27.2.1 (24B156), the user's screenshot confirms clear and blur under fullColor; the original glass control did not produce Liquid Glass. The runtime report confirms CHSGlassOptions. iOS 26 headers independently show CHSWidgetTintParameters owns glassOptions, isClearGlass, isAccentedGlass and wantsGlassMaterial. SBHWidgetDisplayConfiguration consumes tintParameters on the host. This does not establish an extension-controlled path. The diagnostic tests only bounded temporary tint objects (filterStyle 0...12), checks method signatures, reads boolean predicates, and lists local class methods relating to tint/glass. No host request, no descriptor changes, no guessed glass mode shipped. The four previously tested widget implementations remain identical.

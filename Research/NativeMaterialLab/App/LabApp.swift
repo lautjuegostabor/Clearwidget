@@ -36,8 +36,9 @@ private struct LabView: View {
                     }
                     Text(result).font(.footnote)
                 }
-                Section("API del sistema (solo lectura)") {
+                Section("Diagnóstico de cristal · 0.1.1") {
                     Button("Inspeccionar ChronoServices") { inventory = CWLabRuntimeInventory() }
+                    Text("Consulta firmas y objetos temporales de color. No cambia la apariencia ni envía parámetros a SpringBoard.").font(.caption)
                     if !inventory.isEmpty {
                         Button("Copiar informe") { UIPasteboard.general.string = inventory }
                         Text(inventory).font(.caption2.monospaced()).textSelection(.enabled)

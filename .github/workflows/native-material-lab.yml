@@ -32,6 +32,7 @@ jobs:
           xcrun --sdk macosx clang -DCW_LAB_TEST -fobjc-arc -fblocks -framework Foundation Widget/NativeDescriptorLab.m Tests/StyleTests.m -o /tmp/cw-lab-test
           /tmp/cw-lab-test
           xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=27.0 -fobjc-arc -fblocks -fapplication-extension -fsyntax-only Widget/NativeDescriptorLab.m
+          xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=27.0 -fobjc-arc -fsyntax-only -Wall -Wextra App/RuntimeInventory.m
       - name: Build independent project
         run: |
           brew install xcodegen
@@ -45,16 +46,18 @@ jobs:
           python3 - "$app" "$ext" <<'PY'
           import pathlib, plistlib, sys
           for p,b in zip(sys.argv[1:],('com.clearwidget.materiallab','com.clearwidget.materiallab.widget')):
-              assert plistlib.loads((pathlib.Path(p)/'Info.plist').read_bytes())['CFBundleIdentifier']==b
+              info=plistlib.loads((pathlib.Path(p)/'Info.plist').read_bytes())
+              assert info['CFBundleIdentifier']==b
+              assert info['CFBundleShortVersionString']=='0.1.1' and info['CFBundleVersion']=='2'
           bin=(pathlib.Path(sys.argv[2])/'NativeMaterialLabExtension').read_bytes()
           for kind in (b'CWLabSystem',b'CWLabClear',b'CWLabBlur',b'CWLabGlass'): assert kind in bin
           PY
           mkdir Payload
           cp -R "$app" Payload/
-          zip -qry NativeMaterialLab-0.1.0.ipa Payload
-          unzip -t NativeMaterialLab-0.1.0.ipa
+          zip -qry NativeMaterialLab-0.1.1.ipa Payload
+          unzip -t NativeMaterialLab-0.1.1.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: NativeMaterialLab-0.1.0
-          path: Research/NativeMaterialLab/NativeMaterialLab-0.1.0.ipa
+          name: NativeMaterialLab-0.1.1
+          path: Research/NativeMaterialLab/NativeMaterialLab-0.1.1.ipa
           if-no-files-found: error
