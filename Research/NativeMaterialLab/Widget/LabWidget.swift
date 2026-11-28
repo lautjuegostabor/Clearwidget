@@ -172,6 +172,8 @@ private struct ExactMaterialProvider: AppIntentTimelineProvider {
 }
 private struct ExactGlassLabWidget: Widget {
     let variant: LabVariant
+    init() { self.variant = .exact }
+    init(variant: LabVariant) { self.variant = variant }
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: variant.rawValue, intent: ExactMaterialIntent.self, provider: ExactMaterialProvider()) { _ in
             LabContent(variant: variant)
