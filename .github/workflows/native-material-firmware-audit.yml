@@ -26,7 +26,7 @@ jobs:
           df -h
           ipsw extract --remote --dyld --device iPhone19,7 --dyld-arch arm64e --output "$RUNNER_TEMP/24B156-cache" "$FIRMWARE_URL" 2>&1 | tee "$RUNNER_TEMP/material-audit/extraction.log"
           find "$RUNNER_TEMP/24B156-cache" -name 'dyld_shared_cache_arm64e*' -print | tee "$RUNNER_TEMP/material-audit/cache-files.txt"
-          cache=$(find "$RUNNER_TEMP/24B156-cache" -type f -name dyld_shared_cache_arm64e -print -quit)
+          cache=$(find "$RUNNER_TEMP/24B156-cache" -type f \( -name dyld_shared_cache_arm64e_x1 -o -name dyld_shared_cache_arm64e \) -print -quit)
           test -n "$cache"
           echo "DSC=$cache" >> "$GITHUB_ENV"
           ipsw dyld info "$cache" --no-color > "$RUNNER_TEMP/material-audit/cache-info.txt"
@@ -56,10 +56,10 @@ jobs:
               if r.returncode: failures.append((path,r.returncode))
           for fw, names in targets.items():
               image='/System/Library/PrivateFrameworks/'+fw+'.framework/'+fw
-              capture(['class-dump',cache,image,'--class','|'.join(names),'--re'],fw+'-classes.txt')
+              capture(['class-dump',cache,image,'--class','|'.join(names),'--re','-V'],fw+'-classes.txt')
               for method in methods.get(fw,[]):
                   filename=fw+'-'+re.sub(r'[^a-zA-Z0-9]+','_',method)+'.asm.txt'
-                  capture(['dyld','disass',cache,'--symbol-image',image,'--symbol',method],filename)
+                  capture(['dyld','disass',cache,'--symbol-image',image,'--symbol='+method],filename)
           capture(['dyld','image',cache,'/System/Library/Frameworks/WidgetKit.framework/WidgetKit'],'WidgetKit-image.txt')
           pathlib.Path('failures.txt').write_text(repr(failures))
           if failures: print('Some methods unavailable; evidence preserved',failures)
