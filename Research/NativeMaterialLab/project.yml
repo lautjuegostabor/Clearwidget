@@ -23,6 +23,8 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Material Lab
+        CFBundleShortVersionString: '0.1.1'
+        CFBundleVersion: '2'
         UILaunchScreen: {}
     dependencies:
       - target: NativeMaterialLabExtension
@@ -44,6 +46,8 @@ targets:
       path: Widget/Info.plist
       properties:
         CFBundleDisplayName: Material Lab
+        CFBundleShortVersionString: '0.1.1'
+        CFBundleVersion: '2'
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
 schemes:

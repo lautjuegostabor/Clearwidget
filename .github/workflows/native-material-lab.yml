@@ -37,6 +37,12 @@ jobs:
         run: |
           brew install xcodegen
           xcodegen generate
+          python3 - <<'PY'
+          import plistlib
+          for path in ('App/Info.plist','Widget/Info.plist'):
+              with open(path,'rb') as f: p=plistlib.load(f)
+              assert p.get('CFBundleShortVersionString')=='0.1.1' and p.get('CFBundleVersion')=='2', (path,p)
+          PY
           xcodebuild -project NativeMaterialLab.xcodeproj -scheme NativeMaterialLab -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build ARCHS=arm64 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
       - name: Verify package
         run: |
@@ -47,8 +53,9 @@ jobs:
           import pathlib, plistlib, sys
           for p,b in zip(sys.argv[1:],('com.clearwidget.materiallab','com.clearwidget.materiallab.widget')):
               info=plistlib.loads((pathlib.Path(p)/'Info.plist').read_bytes())
-              assert info['CFBundleIdentifier']==b
-              assert info['CFBundleShortVersionString']=='0.1.1' and info['CFBundleVersion']=='2'
+              print(b, info.get('CFBundleShortVersionString'), info.get('CFBundleVersion'))
+              assert info['CFBundleIdentifier']==b, (p, info.get('CFBundleIdentifier'))
+              assert info['CFBundleShortVersionString']=='0.1.1' and info['CFBundleVersion']=='2', (p, info.get('CFBundleShortVersionString'), info.get('CFBundleVersion'))
           bin=(pathlib.Path(sys.argv[2])/'NativeMaterialLabExtension').read_bytes()
           for kind in (b'CWLabSystem',b'CWLabClear',b'CWLabBlur',b'CWLabGlass'): assert kind in bin
           PY
