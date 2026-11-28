@@ -17,6 +17,9 @@ NSInteger CWLabStyleForKind(NSString *kind) {
     if ([kind isEqualToString:@"CWLabBlur"]) return 2;
     return 0;
 }
+BOOL CWLabUsesExactStyleForKind(NSString *kind) {
+    return [kind isEqualToString:@"CWLabExactGlass"];
+}
 static BOOL CWMethod(Method method, char result, unsigned n) {
     if (!method || method_getNumberOfArguments(method) != n) return NO;
     char *type = method_copyReturnType(method);
@@ -150,8 +153,52 @@ static void CWInstall(Class cls,SEL sel,IMP impl,CWFetch *original) {
     *original=(CWFetch)previous;
     method_setImplementation(method,impl);
 }
+// FlekDeck's original-descriptor encoding mechanism, scoped to a single
+// widget kind in this extension. No descriptor copies or other flag changes.
+typedef void (*CWDescriptorEncode)(id, SEL, NSCoder *);
+static CWDescriptorEncode exactOriginal=NULL;
+static ptrdiff_t exactOffset=0;
+static void CWExactEncode(id object, SEL sel, NSCoder *coder) {
+    SEL kindSelector=NSSelectorFromString(@"kind");
+    if (CWMethod(class_getInstanceMethod(object_getClass(object),kindSelector),'@',2)) {
+        id kind=((id(*)(id,SEL))objc_msgSend)(object,kindSelector);
+        if ([kind isKindOfClass:NSString.class] && CWLabUsesExactStyleForKind(kind)) {
+            NSInteger oldStyle=0, newStyle=2;
+            char *storage=(char *)(__bridge void *)object+exactOffset;
+            memcpy(&oldStyle,storage,sizeof(oldStyle));
+            memcpy(storage,&newStyle,sizeof(newStyle));
+            os_log_info(OS_LOG_DEFAULT,"CWExact: original descriptor %{public}ld -> 2",(long)oldStyle);
+        }
+    }
+    exactOriginal(object,sel,coder);
+}
+static void CWInstallExact(void) {
+    if (exactOriginal) return;
+    Class base=NSClassFromString(@"CHSBaseDescriptor");
+    Class desc=NSClassFromString(@"CHSWidgetDescriptor");
+    if (!base || !desc || ![desc isSubclassOfClass:base]) return;
+    Ivar ivar=class_getInstanceVariable(base,"_preferredBackgroundStyle");
+    if (!ivar || strcmp(ivar_getTypeEncoding(ivar),"q")) return;
+    ptrdiff_t offset=ivar_getOffset(ivar);
+    if(offset<0 || (size_t)offset+sizeof(NSInteger)>class_getInstanceSize(base)) return;
+    SEL sel=@selector(encodeWithCoder:);
+    unsigned n=0; Method *methods=class_copyMethodList(desc,&n); Method method=NULL;
+    for(unsigned i=0;i<n;i++) if(method_getName(methods[i])==sel){method=methods[i];break;}
+    free(methods);
+    if(!CWMethod(method,'v',3)) return;
+    char *arg=method_copyArgumentType(method,2);
+    BOOL valid=arg && arg[0]=='@'; free(arg);
+    if(!valid) return;
+    IMP original=method_getImplementation(method);
+    if(!original || original==(IMP)CWExactEncode) return;
+    exactOffset=offset;
+    exactOriginal=(CWDescriptorEncode)original;
+    method_setImplementation(method,(IMP)CWExactEncode);
+    os_log_info(OS_LOG_DEFAULT,"CWExact: installed original descriptor encoder");
+}
 static void CWAttempt(void) {
     @synchronized(NSObject.class) {
+        CWInstallExact();
         Class cls=NSClassFromString(@"_TtCC9WidgetKit24WidgetExtensionXPCServer14ExportedObject");
         CWInstall(cls,NSSelectorFromString(@"getAllCurrentDescriptorsWithCompletion:"),(IMP)CWAll,&allOriginal);
         CWInstall(cls,NSSelectorFromString(@"getCurrentDescriptorsWithCompletion:"),(IMP)CWCurrent,&currentOriginal);

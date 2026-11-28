@@ -1,7 +1,9 @@
+import AppIntents
 import SwiftUI
 import WidgetKit
 
 private enum LabVariant: String {
+    case exact = "CWLabExactGlass"
     case system = "CWLabSystem"
     case clear = "CWLabClear"
     case blur = "CWLabBlur"
@@ -15,6 +17,7 @@ private enum LabVariant: String {
 
     var label: String {
         switch self {
+        case .exact: return "Cristal original"
         case .system: return "Sistema"
         case .clear: return "Clear"
         case .blur: return "Blur"
@@ -131,10 +134,32 @@ private struct HostGlassMediumLabWidget: Widget {
     var body: some WidgetConfiguration { hostGlassConfiguration(.hostGlassMedium, family: .systemMedium) }
 }
 
+private struct ExactMaterialIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "Cristal original"
+}
+private struct ExactMaterialProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> LabEntry { LabEntry(date: .now) }
+    func snapshot(for configuration: ExactMaterialIntent, in context: Context) async -> LabEntry { LabEntry(date: .now) }
+    func timeline(for configuration: ExactMaterialIntent, in context: Context) async -> Timeline<LabEntry> {
+        Timeline(entries: [LabEntry(date: .now)], policy: .never)
+    }
+}
+private struct ExactGlassLabWidget: Widget {
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(kind: LabVariant.exact.rawValue, intent: ExactMaterialIntent.self, provider: ExactMaterialProvider()) { _ in
+            LabContent(variant: .exact)
+        }
+        .configurationDisplayName("Lab · Cristal original")
+        .description("Descriptor original, material del sistema, sin capas añadidas.")
+        .supportedFamilies([.systemSmall])
+        .contentMarginsDisabled()
+    }
+}
 @main
 struct NativeMaterialLabWidgets: WidgetBundle {
     init() { CWLabInstall() }
     var body: some Widget {
+        ExactGlassLabWidget()
         SystemLabWidget()
         ClearLabWidget()
         Clear08LabWidget()

@@ -11,7 +11,13 @@ int main(void) {
             NSCAssert(CWLabStyleForKind(kind)==0,@"native and unrelated kinds must not enter legacy path");
         }
         NSCAssert(CWLabStyleForKind(nil)==0,@"nil ignored");
-        NSLog(@"Scope tests passed; no native descriptor mutation.");
+        NSCAssert(CWLabStyleForKind(@"CWLabExactGlass")==0,@"exact variant bypasses legacy copy");
+        NSCAssert(CWLabUsesExactStyleForKind(@"CWLabExactGlass"),@"exact variant");
+        for(NSString *kind in @[@"CWLabSystem",@"CWLabClear",@"CWLabBlur",@"CWLabGlass",@"Other"]) {
+            NSCAssert(!CWLabUsesExactStyleForKind(kind),@"original encoder must not modify controls");
+        }
+        NSCAssert(!CWLabUsesExactStyleForKind(nil),@"nil ignored");
+        NSLog(@"Scope tests passed; exact variant isolated.");
     }
     return 0;
 }

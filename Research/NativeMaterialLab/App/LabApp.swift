@@ -16,6 +16,7 @@ private struct LabView: View {
         NavigationStack {
             List {
                 Section("Comparación aislada") {
+                    Text("Cristal original: agrega Lab · Cristal original (tamaño pequeño) con apariencia global normal. El sistema recibe el descriptor original sin capas de color.")
                     Text("Sistema: fondo normal.")
                     Text("Clear: descriptor transparente, estilo 1.")
                     Text("Blur: descriptor translúcido, estilo 2.")
@@ -38,7 +39,7 @@ private struct LabView: View {
                     }
                     Text(result).font(.footnote)
                 }
-                Section("Diagnóstico de cristal · 0.1.5") {
+                Section("Diagnóstico de cristal · 0.1.6") {
                     Button("Inspeccionar ChronoServices") { inventory = CWLabRuntimeInventory() }
                     Text("Consulta firmas y objetos temporales de color. No cambia la apariencia ni envía parámetros a SpringBoard.").font(.caption)
                     if !inventory.isEmpty {
