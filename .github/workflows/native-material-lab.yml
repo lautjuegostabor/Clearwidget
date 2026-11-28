@@ -41,7 +41,7 @@ jobs:
           import plistlib
           for path in ('App/Info.plist','Widget/Info.plist'):
               with open(path,'rb') as f: p=plistlib.load(f)
-              assert p.get('CFBundleShortVersionString')=='0.1.2' and p.get('CFBundleVersion')=='3', (path,p)
+              assert p.get('CFBundleShortVersionString')=='0.1.3' and p.get('CFBundleVersion')=='4', (path,p)
           PY
           xcodebuild -project NativeMaterialLab.xcodeproj -scheme NativeMaterialLab -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build ARCHS=arm64 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
       - name: Verify package
@@ -55,17 +55,17 @@ jobs:
               info=plistlib.loads((pathlib.Path(p)/'Info.plist').read_bytes())
               print(b, info.get('CFBundleShortVersionString'), info.get('CFBundleVersion'))
               assert info['CFBundleIdentifier']==b, (p, info.get('CFBundleIdentifier'))
-              assert info['CFBundleShortVersionString']=='0.1.2' and info['CFBundleVersion']=='3', (p, info.get('CFBundleShortVersionString'), info.get('CFBundleVersion'))
+              assert info['CFBundleShortVersionString']=='0.1.3' and info['CFBundleVersion']=='4', (p, info.get('CFBundleShortVersionString'), info.get('CFBundleVersion'))
           bin=(pathlib.Path(sys.argv[2])/'NativeMaterialLabExtension').read_bytes()
-          for kind in (b'CWLabSystem',b'CWLabClear',b'CWLabBlur',b'CWLabGlass',b'CWLabGlassOnClear',b'CWLabGlassOnBlur'): assert kind in bin
-          assert b'glassEffect' in bin, 'native glass modifier missing'
+          for kind in (b'CWLabSystem',b'CWLabClear',b'CWLabBlur',b'CWLabGlass',b'CWLabHostGlassSmall',b'CWLabHostGlassMedium'): assert kind in bin
+          assert b'encoding own host-glass descriptor' in bin, 'host encoder missing'
           PY
           mkdir Payload
           cp -R "$app" Payload/
-          zip -qry NativeMaterialLab-0.1.2.ipa Payload
-          unzip -t NativeMaterialLab-0.1.2.ipa
+          zip -qry NativeMaterialLab-0.1.3.ipa Payload
+          unzip -t NativeMaterialLab-0.1.3.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: NativeMaterialLab-0.1.2
-          path: Research/NativeMaterialLab/NativeMaterialLab-0.1.2.ipa
+          name: NativeMaterialLab-0.1.3
+          path: Research/NativeMaterialLab/NativeMaterialLab-0.1.3.ipa
           if-no-files-found: error

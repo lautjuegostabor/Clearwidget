@@ -6,8 +6,8 @@ private enum LabVariant: String {
     case clear = "CWLabClear"
     case blur = "CWLabBlur"
     case glass = "CWLabGlass"
-    case glassOnClear = "CWLabGlassOnClear"
-    case glassOnBlur = "CWLabGlassOnBlur"
+    case hostGlassSmall = "CWLabHostGlassSmall"
+    case hostGlassMedium = "CWLabHostGlassMedium"
 
     var label: String {
         switch self {
@@ -15,8 +15,7 @@ private enum LabVariant: String {
         case .clear: return "Clear"
         case .blur: return "Blur"
         case .glass: return "Cristal del sistema"
-        case .glassOnClear: return "Glass + Clear"
-        case .glassOnBlur: return "Glass + Blur"
+        case .hostGlassSmall, .hostGlassMedium: return "Glass nativo · candidato"
         }
     }
 }
@@ -52,16 +51,7 @@ private struct LabContent: View {
             Text(renderingName).font(.caption.monospaced())
             Text(showsBackground ? "Fondo visible" : "Fondo oculto").font(.caption2)
         }
-        .padding(variant == .glassOnClear || variant == .glassOnBlur ? 16 : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .background {
-            if variant == .glassOnClear || variant == .glassOnBlur {
-                Color.clear
-                    .glassEffect(.clear, in: ContainerRelativeShape())
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-        }
         .containerBackground(for: .widget) {
             if variant == .system {
                 Color.gray.opacity(0.2)
@@ -95,11 +85,20 @@ private struct GlassLabWidget: Widget {
     var body: some WidgetConfiguration { labConfiguration(.glass) }
 }
 
-private struct GlassOnClearLabWidget: Widget {
-    var body: some WidgetConfiguration { labConfiguration(.glassOnClear).contentMarginsDisabled() }
+// Unlike Clear and Blur, these kinds retain all normal descriptor flags.
+private func hostGlassConfiguration(_ variant: LabVariant, family: WidgetFamily) -> some WidgetConfiguration {
+    StaticConfiguration(kind: variant.rawValue, provider: LabProvider()) { _ in
+        LabContent(variant: variant)
+    }
+    .configurationDisplayName(family == .systemSmall ? "Lab · Host Glass S" : "Lab · Host Glass M")
+    .description("Solicita únicamente el material del sistema, sin filtros de SwiftUI.")
+    .supportedFamilies([family])
 }
-private struct GlassOnBlurLabWidget: Widget {
-    var body: some WidgetConfiguration { labConfiguration(.glassOnBlur).contentMarginsDisabled() }
+private struct HostGlassSmallLabWidget: Widget {
+    var body: some WidgetConfiguration { hostGlassConfiguration(.hostGlassSmall, family: .systemSmall) }
+}
+private struct HostGlassMediumLabWidget: Widget {
+    var body: some WidgetConfiguration { hostGlassConfiguration(.hostGlassMedium, family: .systemMedium) }
 }
 
 @main
@@ -110,7 +109,7 @@ struct NativeMaterialLabWidgets: WidgetBundle {
         ClearLabWidget()
         BlurLabWidget()
         GlassLabWidget()
-        GlassOnClearLabWidget()
-        GlassOnBlurLabWidget()
+        HostGlassSmallLabWidget()
+        HostGlassMediumLabWidget()
     }
 }
