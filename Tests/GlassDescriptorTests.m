@@ -124,12 +124,13 @@ int main(void){@autoreleasepool{
     check(c.transparent && c.backgroundRemovable && !c.supportsVibrantContent && c.preferredBackgroundStyle==1,@"clear style");
     CWTestResult *glass=CWTestPatchMode(original,CWTestResult.class,CWTestDescriptor.class,CWTestControl.class,3);
     CWTestDescriptor *g=glass.widgetDescriptors[0];
-    check(g.transparent && g.backgroundRemovable && g.supportsVibrantContent && g.preferredBackgroundStyle==2,@"glass candidate requests native material");
+    check(g.transparent && g.backgroundRemovable && g.preferredBackgroundStyle==1,@"glass probe requests transparent host, not Blur");
     check([g class]==CWTestDescriptor.class,@"mutable subclass converted back to immutable class");
     CWTestResult *changed=patch(original);
     check(changed!=original,@"new result");
     CWTestDescriptor *d=changed.widgetDescriptors[0];
     check(d.backgroundRemovable && d.transparent && d.supportsVibrantContent && d.preferredBackgroundStyle==2,@"blur style");
+    check(g.preferredBackgroundStyle!=d.preferredBackgroundStyle,@"glass and Blur use distinct descriptor paths");
     check(!own.transparent && own.preferredBackgroundStyle==0,@"original unchanged");
     check(!((CWTestDescriptor*)changed.widgetDescriptors[1]).transparent,@"unrelated widget");
     check(!((CWTestDescriptor*)changed.controlDescriptors[0]).transparent,@"control unchanged");

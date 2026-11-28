@@ -21,7 +21,7 @@ enum WidgetAppearance: Int, AppEnum, CaseIterable {
         case .system: return "Comportamiento original, según la apariencia de iOS."
         case .clear: return "Solicita transparencia sin material de fondo."
         case .blur: return "Solicita el fondo translúcido del sistema."
-        case .liquidGlass: return "Solicita la ruta experimental de cristal del compositor. Puede coincidir con Blur según iOS."
+        case .liquidGlass: return "Prueba el cristal nativo de SwiftUI sobre un descriptor transparente. iOS puede omitir el efecto."
         }
     }
 }

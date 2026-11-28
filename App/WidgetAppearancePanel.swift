@@ -5,6 +5,8 @@ struct WidgetAppearancePanel: View {
     @State private var selected = AppearancePreference.current()
     @State private var status = "Sistema es el valor inicial."
     @State private var observation: Task<Void, Never>?
+    @State private var descriptorStatus = "Sin lectura de ChronoServices."
+    @State private var reloadID = UUID()
     @Environment(\.scenePhase) private var phase
     var body: some View {
         Section("Apariencia") {
@@ -30,8 +32,9 @@ struct WidgetAppearancePanel: View {
                 .accessibilityAddTraits(selected == mode ? [.isSelected] : [])
             }
             Text(status).font(.footnote).accessibilityIdentifier("appearance.status")
-            Button("Comprobar estado") { restoreAndRefresh() }
-            Text("La marca indica tu selección, no el efecto visual aplicado. Liquid Glass sigue siendo experimental y puede coincidir con Blur.")
+            Text(descriptorStatus).font(.footnote).accessibilityIdentifier("appearance.readback")
+            Button("Comprobar estado") { restoreAndRefresh(); requestDescriptorReload() }
+            Text("Liquid Glass prueba el material nativo de SwiftUI, sin fondo de pantalla. La lectura del descriptor no demuestra refracción óptica.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .onAppear { selected = AppearancePreference.current(); restoreAndRefresh() }
@@ -46,6 +49,7 @@ struct WidgetAppearancePanel: View {
             if try AppearancePreference.restoreRequest() {
                 WidgetCenter.shared.invalidateConfigurationRecommendations()
                 WidgetCenter.shared.reloadTimelines(ofKind:"ClearWidget")
+                requestDescriptorReload()
             }
             refreshStatus()
         } catch { status = "No se pudo enviar la selección: \(error.localizedDescription)" }
@@ -54,11 +58,14 @@ struct WidgetAppearancePanel: View {
         observation?.cancel()
         observation = nil
         selected = mode
+        reloadID = UUID()
+        descriptorStatus = "Selección nueva; lectura pendiente."
         status = "Guardando \(mode.label)…"
         do {
             try AppearancePreference.select(mode)
             WidgetCenter.shared.invalidateConfigurationRecommendations()
             WidgetCenter.shared.reloadTimelines(ofKind: "ClearWidget")
+            requestDescriptorReload()
             status = "Selección guardada. Actualización solicitada a iOS."
             observation = Task { @MainActor in
                 for delay in [500, 1000, 2000, 3000] {
@@ -69,6 +76,20 @@ struct WidgetAppearancePanel: View {
             }
         } catch {
             status = "Selección local: \(mode.label). No se pudo enviar al widget: \(error.localizedDescription)"
+        }
+    }
+    @MainActor private func requestDescriptorReload() {
+        let id = UUID()
+        reloadID = id
+        let mode = selected
+        descriptorStatus = "Solicitando recarga y lectura del descriptor…"
+        let expected = mode == .system ? -1 : (mode == .blur ? 2 : 1)
+        CWReloadOwnDescriptors(expected) { message in
+            Task { @MainActor in
+                guard reloadID == id else { return }
+                descriptorStatus = message
+                _ = refreshStatus()
+            }
         }
     }
     @MainActor @discardableResult private func refreshStatus() -> Bool {

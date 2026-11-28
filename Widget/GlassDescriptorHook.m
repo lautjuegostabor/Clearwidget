@@ -11,9 +11,8 @@
 #import <stdint.h>
 
 static NSString * const CWKind = @"ClearWidget";
-// The native host may select glass for preferred style 2 in normal appearance.
-// Both Blur and experimental Glass request that same verified descriptor style;
-// there is no proven independent glass/blur selector in iOS 27.
+// Blur requests the host material (style 2). Glass is a separate native SwiftUI
+// composition probe over the transparent descriptor (style 1). No wallpaper image.
 extern int32_t CWReadAppearance(uint64_t *revision);
 extern void CWReportAppearance(int32_t mode,uint64_t revision,int32_t outcome);
 typedef NS_ENUM(NSInteger, CWAppearance) {
@@ -82,16 +81,23 @@ static id CWStyledCopy(id descriptor, Class descriptorClass, NSInteger mode) {
     char encodings[4];
     for (NSUInteger i=0;i<4;i++) {
         encodings[i]=CWScalarArg(copy,setters[i],i<3);
-        if (!encodings[i]) return nil;
+        if (!encodings[i] && (i!=2 || mode==CWAppearanceBlur)) return nil;
     }
-    // setTransparent: can itself reset style and vibrant flags. Write it
-    // first, then explicitly choose the observed native style.
-    NSInteger values[] = {1,1,mode==CWAppearanceClear ? 0 : 1,mode==CWAppearanceClear ? 1 : 2};
-    for (NSUInteger i=0;i<4;i++) CWSetScalar(copy,setters[i],encodings[i],values[i]);
+    // setTransparent: can reset style/vibrancy. Match the observed Clear path:
+    // leave vibrancy untouched for Clear and the independent SwiftUI glass probe.
+    NSInteger style = mode==CWAppearanceBlur ? 2 : 1;
+    CWSetScalar(copy,setters[0],encodings[0],1);
+    CWSetScalar(copy,setters[1],encodings[1],1);
+    if (mode==CWAppearanceBlur) CWSetScalar(copy,setters[2],encodings[2],1);
+    CWSetScalar(copy,setters[3],encodings[3],style);
+    NSNumber *readback=[copy valueForKey:@"preferredBackgroundStyle"];
+    if (![readback isKindOfClass:NSNumber.class] || readback.integerValue!=style) return nil;
     // ChronoServices mutable descriptors copy back to their immutable class.
     // This preserves the expected secure coding class on the XPC boundary.
     id frozen=[copy copy];
     if (!frozen || frozen==descriptor || ![frozen isKindOfClass:descriptorClass]) return nil;
+    NSNumber *frozenStyle=[frozen valueForKey:@"preferredBackgroundStyle"];
+    if (![frozenStyle isKindOfClass:NSNumber.class] || frozenStyle.integerValue!=style) return nil;
     return frozen;
 }
 
@@ -127,6 +133,50 @@ static id CWStyledCopy(id descriptor, Class descriptorClass, NSInteger mode) {
 }
 @end
 
+
+ // Reconstruct the widget descriptor collection explicitly using the original result
+ // coder. Preserve other keys (including controls, activities and future fields).
+ // Keep the previous object-substitution path only for unrecognized schemas.
+@interface CWGlassResultArchiver : NSKeyedArchiver
+@property(nonatomic,assign) Class descriptorClass;
+@property(nonatomic,assign) Class controlClass;
+@property(nonatomic) NSInteger mode;
+@property(nonatomic) BOOL foundCollection;
+@property(nonatomic) BOOL failed;
+@property(nonatomic) NSUInteger replacements;
+@end
+@implementation CWGlassResultArchiver
+- (void)encodeObject:(id)object forKey:(NSString *)key {
+    if (!self.foundCollection && [key isEqualToString:@"widgetDescriptors"] &&
+        [object isKindOfClass:NSArray.class]) {
+        self.foundCollection=YES;
+        NSMutableArray *widgets=[NSMutableArray arrayWithCapacity:[object count]];
+        for (id descriptor in (NSArray *)object) {
+            id next=descriptor;
+            if (CWIsOwnDescriptor(descriptor,self.descriptorClass,self.controlClass)) {
+                next=CWStyledCopy(descriptor,self.descriptorClass,self.mode);
+                if (!next) { self.failed=YES; break; }
+                self.replacements++;
+            }
+            [widgets addObject:next];
+        }
+        [super encodeObject:self.failed ? object : [widgets copy] forKey:key];
+        return;
+    }
+    [super encodeObject:object forKey:key];
+}
+@end
+
+static id CWDecodeResult(NSData *bytes, Class resultClass) {
+    NSError *error=nil;
+    NSKeyedUnarchiver *reader=[[NSKeyedUnarchiver alloc] initForReadingFromData:bytes error:&error];
+    if (!reader || error) return nil;
+    reader.requiresSecureCoding=YES;
+    id patched=[(id<NSCoding>)[resultClass alloc] initWithCoder:reader];
+    [reader finishDecoding];
+    return patched && !reader.error && object_getClass(patched)==resultClass ? patched : nil;
+}
+
 // Preserve the complete original result schema by letting its own coder serialize
 // all fields; replace only matching widget descriptors with independent copies.
 // No file, wallpaper image, network request, entitlement, or background timer.
@@ -138,6 +188,16 @@ static id CWPatchResult(id original, Class resultClass, Class descriptorClass, C
         Method decoder=class_getInstanceMethod(resultClass,@selector(initWithCoder:));
         if (!CWMethodMatches(encoder,'v',3) || !CWObjectArg(encoder,2,NO) ||
             !CWMethodMatches(decoder,'@',3) || !CWObjectArg(decoder,2,NO)) return original;
+        CWGlassResultArchiver *direct=[[CWGlassResultArchiver alloc] initRequiringSecureCoding:YES];
+        direct.descriptorClass=descriptorClass;
+        direct.controlClass=controlClass;
+        direct.mode=mode;
+        [(id<NSCoding>)original encodeWithCoder:direct];
+        [direct finishEncoding];
+        if (direct.foundCollection) {
+            if (direct.failed || !direct.replacements) return original;
+            return CWDecodeResult(direct.encodedData,resultClass) ?: original;
+        }
         CWGlassArchiveDelegate *delegate=[CWGlassArchiveDelegate new];
         delegate.descriptorClass=descriptorClass;
         delegate.controlClass=controlClass;
@@ -150,14 +210,7 @@ static id CWPatchResult(id original, Class resultClass, Class descriptorClass, C
         [(id<NSCoding>)original encodeWithCoder:archive];
         [archive finishEncoding];
         if (delegate.failed || delegate.replacements==0) return original;
-        NSError *error=nil;
-        NSKeyedUnarchiver *reader=[[NSKeyedUnarchiver alloc] initForReadingFromData:archive.encodedData error:&error];
-        if (!reader || error) return original;
-        reader.requiresSecureCoding=YES;
-        id patched=[(id<NSCoding>)[resultClass alloc] initWithCoder:reader];
-        [reader finishDecoding];
-        if (!patched || reader.error || object_getClass(patched)!=resultClass) return original;
-        return patched;
+        return CWDecodeResult(archive.encodedData,resultClass) ?: original;
     } @catch (NSException *exception) {
         (void)exception;
         return original;
@@ -219,19 +272,25 @@ static BOOL CWInstall(Class cls,SEL selector,IMP replacement,CWFetchIMP *saved) 
 int CWGlassDescriptorHookAvailable(void) {
     @synchronized(CWGlassArchiveDelegate.class) { return CWOriginalAll != NULL || CWOriginalCurrent != NULL; }
 }
-void CWInstallGlassDescriptorHook(void) {
+static void CWAttemptInstall(void) {
     if (@available(iOS 27.0,*)) {
         @synchronized(CWGlassArchiveDelegate.class) {
             Class server=NSClassFromString(@"_TtCC9WidgetKit24WidgetExtensionXPCServer14ExportedObject");
-            BOOL all=CWInstall(server,NSSelectorFromString(@"getAllCurrentDescriptorsWithCompletion:"),(IMP)CWAll,&CWOriginalAll);
-            BOOL current=CWInstall(server,NSSelectorFromString(@"getCurrentDescriptorsWithCompletion:"),(IMP)CWCurrent,&CWOriginalCurrent);
-            if (!all && !current) {
-                uint64_t revision=0;
-                int32_t mode=CWReadAppearance(&revision);
-                if (mode!=CWAppearanceSystem) CWReportAppearance(mode,revision,3);
-            }
+            CWInstall(server,NSSelectorFromString(@"getAllCurrentDescriptorsWithCompletion:"),(IMP)CWAll,&CWOriginalAll);
+            CWInstall(server,NSSelectorFromString(@"getCurrentDescriptorsWithCompletion:"),(IMP)CWCurrent,&CWOriginalCurrent);
         }
     }
+}
+#if !defined(CW_GLASS_TESTING)
+__attribute__((constructor)) static void CWEarlyInstall(void) {
+    // No Swift preference access or IPC before the extension initializes.
+    @autoreleasepool { CWAttemptInstall(); }
+}
+#endif
+void CWInstallGlassDescriptorHook(void) {
+    CWAttemptInstall();
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ dispatch_async(dispatch_get_main_queue(), ^{ CWAttemptInstall(); }); });
 }
 
 #if defined(CW_GLASS_TESTING)

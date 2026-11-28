@@ -131,6 +131,7 @@ private struct Entry: TimelineEntry {
     var todayLow: Double? = nil
     var weatherSource: String? = nil
     var displayedWeatherFetchedAt: Date? = nil
+    var appearance: WidgetAppearance = .system
 }
 
 private struct Provider: AppIntentTimelineProvider {
@@ -159,7 +160,8 @@ private struct Provider: AppIntentTimelineProvider {
             activity: animated && smallPage == .activity ? ActivityDisk.read(source: configuration.activityProvider.key(custom: configuration.customActivitySource), at: now) : nil,
             todayLow: animated && smallPage == .weather ? cache?.todayMinimum(at: now) : nil,
             weatherSource: cache?.source,
-            displayedWeatherFetchedAt: displayedWeatherFetchedAt)
+            displayedWeatherFetchedAt: displayedWeatherFetchedAt,
+            appearance: AppearancePreference.current())
     }
     func placeholder(in context: Context) -> Entry {
         Entry(date: Date(), page: .home, weather: .empty, glass: .empty, configuration: ClearConfiguration())
@@ -192,6 +194,7 @@ private struct Provider: AppIntentTimelineProvider {
         }
         let currentEntry = entry(at: date, configuration: configuration, family: context.family, cache: cache, battery: battery)
         if !context.isPreview {
+            CWInstallGlassDescriptorHook()
             AppearancePreference.acknowledgeTimeline()
             if CWGlassDescriptorHookAvailable() == 0, let record = AppearancePreference.currentRecord(), record.mode != 0 {
                 AppearancePreference.report(mode:Int32(record.mode),revision:record.revision,outcome:3)
@@ -472,6 +475,18 @@ private struct FamilyRoot: View {
     @Environment(\.widgetFamily) private var family
     let entry: Entry
     var body: some View {
+        content.background {
+            if entry.appearance == .liquidGlass {
+                // Apple's native optical material only. No image, gradients, or
+                // simulated blur. WidgetKit may decline to composite this effect.
+                Color.clear
+                    .glassEffect(.clear, in: ContainerRelativeShape())
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+    @ViewBuilder private var content: some View {
         if family == .systemSmall {
             switch entry.configuration.design {
             case .glass:

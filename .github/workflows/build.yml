@@ -2,7 +2,7 @@ name: Build ClearWidget IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration, v0.5.4-integration, v0.5.5-integration, v0.5.6-integration, v0.5.7-integration, v0.5.8-integration, v0.5.9-shortcuts, v0.5.10-native-weather, v0.5.11-weather-setup, v0.5.12-clipboard, v0.5.13-apple-text, v0.5.14-controls, v0.5.15-clearsign, v0.5.16-auth-controls, v0.5.17-baristore-auth, v0.5.18-native-glass, v0.5.19-appearance, v0.5.20-controls-fix, v0.5.21-notify-bridge]
+    branches: [main, v0.5-integration, v0.5.2-integration, v0.5.3-integration, v0.5.4-integration, v0.5.5-integration, v0.5.6-integration, v0.5.7-integration, v0.5.8-integration, v0.5.9-shortcuts, v0.5.10-native-weather, v0.5.11-weather-setup, v0.5.12-clipboard, v0.5.13-apple-text, v0.5.14-controls, v0.5.15-clearsign, v0.5.16-auth-controls, v0.5.17-baristore-auth, v0.5.18-native-glass, v0.5.19-appearance, v0.5.20-controls-fix, v0.5.21-notify-bridge, v0.5.22-native-diagnostics]
 permissions:
   contents: read
   actions: read
@@ -43,6 +43,10 @@ jobs:
           xcrun --sdk macosx clang -fobjc-arc -fblocks -DCW_GLASS_TESTING=1 -Wall -Wextra -framework Foundation Widget/GlassDescriptorHook.m Tests/GlassDescriptorTests.m -o /tmp/cw-glass-tests
           /tmp/cw-glass-tests
           xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=27.0 -fobjc-arc -fblocks -fapplication-extension -fsyntax-only -Wall -Wextra Widget/GlassDescriptorHook.m
+      - name: Check host ChronoServices adapter syntax
+        run: |
+          set -euo pipefail
+          xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=27.0 -fobjc-arc -fblocks -fsyntax-only -Wall -Wextra App/DescriptorReload.m
       - name: Test appearance delivery states and stale receipts
         run: |
           set -euo pipefail
@@ -176,32 +180,36 @@ jobs:
           for path, bundle in zip(sys.argv[1:], ["com.clearwidget.app", "com.clearwidget.app.widget"]):
               p = plistlib.loads((pathlib.Path(path) / "Info.plist").read_bytes())
               assert p["CFBundleIdentifier"] == bundle, p
-              assert p["CFBundleShortVersionString"] == "0.5.21", p
-              assert p["CFBundleVersion"] == "27", p
+              assert p["CFBundleShortVersionString"] == "0.5.22", p
+              assert p["CFBundleVersion"] == "28", p
               assert p["CFBundleDisplayName"] == chr(0x2800), p
           print("Verified both final bundle identifiers, display names and versions")
           PY
           python3 - "$ext/ClearWidgetExtension" "$app/ClearWidget" <<'PY'
           import pathlib,sys
           extension,host=(pathlib.Path(p).read_bytes() for p in sys.argv[1:])
-          for marker in (b'getAllCurrentDescriptorsWithCompletion:', b'getCurrentDescriptorsWithCompletion:', b'setPreferredBackgroundStyle:', b'CWGlassArchiveDelegate'):
+          for marker in (b'getAllCurrentDescriptorsWithCompletion:', b'getCurrentDescriptorsWithCompletion:', b'setPreferredBackgroundStyle:', b'CWGlassArchiveDelegate', b'CWGlassResultArchiver'):
               assert marker in extension, marker
               assert marker not in host, ("adapter leaked into host", marker)
-          print("Native descriptor adapter present only in widget extension")
+          for marker in (b'reloadDescriptorsForContainerBundleIdentifier:completion:', b'fetchDescriptorsForContainerBundleIdentifier:completion:'):
+              assert marker in host, marker
+              assert marker not in extension, marker
+          assert b'glassEffect' in extension, "SwiftUI native probe missing"
+          print("Native descriptor adapter and SwiftUI probe present in extension; reload/readback present in host")
           PY
           python3 Tools/check_shortcut_metadata.py "$app" "$ext"
           mkdir -p Payload
           cp -R "$app" Payload/
-          zip -qry ClearWidget-v0.5.21.ipa Payload
-          unzip -t ClearWidget-v0.5.21.ipa
+          zip -qry ClearWidget-v0.5.22.ipa Payload
+          unzip -t ClearWidget-v0.5.22.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: ClearWidget-v0.5.21
-          path: ClearWidget-v0.5.21.ipa
+          name: ClearWidget-v0.5.22
+          path: ClearWidget-v0.5.22.ipa
           if-no-files-found: error
 
   recovery:
-    if: github.ref_name != 'v0.5.9-shortcuts' && github.ref_name != 'v0.5.10-native-weather' && github.ref_name != 'v0.5.11-weather-setup' && github.ref_name != 'v0.5.12-clipboard' && github.ref_name != 'v0.5.13-apple-text' && github.ref_name != 'v0.5.14-controls' && github.ref_name != 'v0.5.15-clearsign' && github.ref_name != 'v0.5.16-auth-controls' && github.ref_name != 'v0.5.17-baristore-auth' && github.ref_name != 'v0.5.18-native-glass' && github.ref_name != 'v0.5.19-appearance' && github.ref_name != 'v0.5.20-controls-fix' && github.ref_name != 'v0.5.21-notify-bridge'
+    if: github.ref_name != 'v0.5.9-shortcuts' && github.ref_name != 'v0.5.10-native-weather' && github.ref_name != 'v0.5.11-weather-setup' && github.ref_name != 'v0.5.12-clipboard' && github.ref_name != 'v0.5.13-apple-text' && github.ref_name != 'v0.5.14-controls' && github.ref_name != 'v0.5.15-clearsign' && github.ref_name != 'v0.5.16-auth-controls' && github.ref_name != 'v0.5.17-baristore-auth' && github.ref_name != 'v0.5.18-native-glass' && github.ref_name != 'v0.5.19-appearance' && github.ref_name != 'v0.5.20-controls-fix' && github.ref_name != 'v0.5.21-notify-bridge' && github.ref_name != 'v0.5.22-native-diagnostics'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

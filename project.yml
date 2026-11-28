@@ -7,8 +7,8 @@ settings:
   base:
     SWIFT_VERSION: '5.0'
     SWIFT_INCLUDE_PATHS: '$(inherited) $(PROJECT_DIR)/Native/AppearanceNotify/include'
-    MARKETING_VERSION: '0.5.21'
-    CURRENT_PROJECT_VERSION: '27'
+    MARKETING_VERSION: '0.5.22'
+    CURRENT_PROJECT_VERSION: '28'
     CODE_SIGNING_ALLOWED: 'NO'
 targets:
   ClearWidget:
@@ -31,6 +31,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.clearwidget.app
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) CLEARWIDGET_HOST"
         TARGETED_DEVICE_FAMILY: '1'
+        CLANG_ENABLE_OBJC_ARC: 'YES'
+        SWIFT_OBJC_BRIDGING_HEADER: App/DescriptorReload.h
         OTHER_LDFLAGS: ['$(inherited)', '$(PROJECT_DIR)/Signing/Native/libclearsign.a', '-framework', 'Security', '-framework', 'SystemConfiguration', '-framework', 'CoreFoundation', '-liconv', '-lresolv', '-lz', '-lc++']
     info:
       path: App/Info.plist
@@ -41,8 +43,8 @@ targets:
         CFBundleDevelopmentRegion: es
         INAlternativeAppNames:
           - INAlternativeAppName: ClearWidget
-        CFBundleShortVersionString: "0.5.21"
-        CFBundleVersion: "27"
+        CFBundleShortVersionString: "0.5.22"
+        CFBundleVersion: "28"
         NSLocationWhenInUseUsageDescription: "ClearWidget usa tu ubicación solo para consultar el clima del lugar donde estés."
         UILaunchScreen: {}
         BGTaskSchedulerPermittedIdentifiers: [com.clearwidget.app.clearsign]
@@ -72,8 +74,8 @@ targets:
       path: Widget/Info.plist
       properties:
         CFBundleDisplayName: "\u2800"
-        CFBundleShortVersionString: "0.5.21"
-        CFBundleVersion: "27"
+        CFBundleShortVersionString: "0.5.22"
+        CFBundleVersion: "28"
         NSWidgetWantsLocation: true
         NSLocationWhenInUseUsageDescription: "Ubicación aproximada para consultar el clima local."
         NSExtension:
