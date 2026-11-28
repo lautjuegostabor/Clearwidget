@@ -1,0 +1,55 @@
+name: Native Material Color Policy 24B156
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/native-material-lab]
+    paths: ['.github/workflows/native-material-color-policy.yml']
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: xcode-27
+    timeout-minutes: 15
+    env:
+      FIRMWARE_URL: https://updates.cdn-apple.com/2026FallFCS/72981b11-802f-4be1-8345-01eecd9908fe/iPhone19,2,iPhone19,3,iPhone19,7_27.2.1_24B156_Restore.ipsw
+    steps:
+      - name: Inspect exact build color policy without compiling
+        run: |
+          set -eo pipefail
+          out="$RUNNER_TEMP/color-policy"
+          mkdir -p "$out"
+          command -v ipsw >/dev/null || brew install blacktop/tap/ipsw
+          cache=$(find "$RUNNER_TEMP/24B156-cache" -type f -name dyld_shared_cache_arm64e_x1 -print -quit 2>/dev/null || true)
+          if [ -z "$cache" ]; then
+            mkdir -p "$RUNNER_TEMP/24B156-cache"
+            ipsw extract --remote --dyld --device iPhone19,7 --dyld-arch arm64e --output "$RUNNER_TEMP/24B156-cache" "$FIRMWARE_URL"
+            cache=$(find "$RUNNER_TEMP/24B156-cache" -type f -name dyld_shared_cache_arm64e_x1 -print -quit)
+          fi
+          test -n "$cache"
+          export DSC="$cache" OUT="$out"
+          python3 - <<'PY'
+          import os, subprocess, pathlib, re
+          root=pathlib.Path(os.environ['OUT'])
+          cache=os.environ['DSC']
+          image='/System/Library/PrivateFrameworks/ChronoUIServices.framework/ChronoUIServices'
+          md=subprocess.check_output(['ipsw','class-dump',cache,image,'--class','CHUISWidgetHostViewController|CHUISMutableWidgetSceneClientSettings|CHUISWidgetSceneClientSettings|CHUISColorSchemePolicy','--re','-V','--no-color'],text=True)
+          (root/'classes.txt').write_text(md)
+          targets=['_evaluateEffectiveColorScheme','_allowsContentPreferredColorSchemeForScene','_colorSchemeForScene','sceneDidUpdateClientSettingsWithDiff:oldClientSettings:newClientSettings:transitionContext:','setColorSchemePolicy:','contentPreferredColorScheme','setContentPreferredColorScheme:']
+          for target in targets:
+              matches=re.findall(r'// (0x[0-9a-f]+)\s*\n- \([^\n]+?\)'+re.escape(target)+r'(?:;|\(.*?\);|[^\n]*;)',md)
+              if not matches:
+                  print('Missing metadata:',target,flush=True)
+                  continue
+              for i,address in enumerate(dict.fromkeys(matches)):
+                  result=subprocess.run(['ipsw','dyld','disass',cache,'--vaddr',address,'--quiet','--no-color'],capture_output=True,text=True,timeout=90)
+                  path=root/(target.replace(':','_')+'-'+str(i)+'.txt')
+                  path.write_text(result.stdout+result.stderr)
+                  print('METHOD',target,address,'status',result.returncode,flush=True)
+                  print(result.stdout[:30000],flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: NativeMaterialColorPolicy24B156
+          path: ${{ runner.temp }}/color-policy/
+          if-no-files-found: error
